@@ -204,7 +204,7 @@ def convert(video_path: str, tempdir: str, segment: int):
     curtime = datetime.datetime.combine(
         datetime.datetime.today().date(), datetime.time(0, 0, 0))
     conversations = []
-    results = []
+    results: List[Tuple[datetime.datetime, datetime.datetime, str]] = []
 
     def push_conversation():
         nonlocal conversations
@@ -218,7 +218,7 @@ def convert(video_path: str, tempdir: str, segment: int):
         if totallen == 0:
             totallen = 1
         if totallen > 3100:
-            # split the long sentence by the " "
+            '''# split the long sentence by the " "
             time_step = delta/totallen
             cur_start = st
             for didx, d in enumerate(conversations):
@@ -229,11 +229,13 @@ def convert(video_path: str, tempdir: str, segment: int):
                 cur_start = myend
                 results.append(
                     f"{mystart.hour:02d}:{mystart.minute:02d}:{mystart.second:02d},{int(mystart.microsecond/1000.0):03d} --> {myend.hour:02d}:{myend.minute:02d}:{myend.second:02d},{int(myend.microsecond/1000.0):03d}\n{d}\n")
+            '''
         else:
             mystart = st
             myend = ed
             d = " ".join(conversations)
-            results.append(f"{mystart.hour:02d}:{mystart.minute:02d}:{mystart.second:02d},000 --> {myend.hour:02d}:{myend.minute:02d}:{myend.second:02d},000\n{d}\n")
+            results.append([mystart, myend, d])
+            # results.append(f"{mystart.hour:02d}:{mystart.minute:02d}:{mystart.second:02d},000 --> {myend.hour:02d}:{myend.minute:02d}:{myend.second:02d},000\n{d}\n")
         # d = "\n".join(conversations)
         # results.append(f"{st.hour:02d}:{st.minute:02d}:{st.second:02d},000 --> {ed.hour:02d}:{ed.minute:02d}:{ed.second:02d},000\n{d}\n")
         conversations = []
@@ -258,13 +260,40 @@ def convert(video_path: str, tempdir: str, segment: int):
             else:
                 conversations.append(line)
         push_conversation()
+    # adjust start timestamps
+    idx = 0
+    while idx < len(results):
+        st, _, _ = results[idx]
+        nidx = idx + 1
+        # find equal range of st
+        while nidx < len(results):
+            st2, _, _ = results[nidx]
+            if st2 != st:
+                 break
+            nidx += 1
+        if nidx == idx + 1:
+            idx = nidx
+            continue
+        nequal = nidx - idx
+        delta = datetime.timedelta(seconds=1/nequal)
+        for i in range(idx, nidx):
+            results[i][0] = st + delta * (i - idx)
+        idx = nidx
+    # adjust end timestamps
+    for idx, (st, ed, _) in enumerate(results):
+        if idx > 0:
+            _, last_ed, _ = results[idx-1]
+            if st < last_ed:
+                results[idx-1][1] = st
+        if ed <= st:
+            results[idx][1] = st + datetime.timedelta(seconds=0.5)
 
     outpathspl = video_path.split(".")
-    outpathspl[-1] = "zh-cn.srt"
+    outpathspl[-1] = "jp.srt"
     outpath = ".".join(outpathspl)
     with open(outpath, 'w', encoding="utf-8-sig") as outf:
-        for idx, line in enumerate(results):
-            outf.write(f"{idx+1}\n{line}\n")
+        for idx, (mystart, myend, d) in enumerate(results):
+            outf.write(f"{idx+1}\n{mystart.hour:02d}:{mystart.minute:02d}:{mystart.second:02d},{int(mystart.microsecond/1000.0):03d} --> {myend.hour:02d}:{myend.minute:02d}:{myend.second:02d},{int(myend.microsecond/1000.0):03d}\n{d}\n\n")
 
 
 if __name__ == "__main__":
