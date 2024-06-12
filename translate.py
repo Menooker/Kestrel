@@ -10,6 +10,7 @@ import sys
 import tqdm
 import time
 import argparse
+import os
 
 # old_init = requests.Session.request
 # def newrequest()
@@ -76,7 +77,7 @@ resume = args.resume
 print(base, files)
 
 for filename in files:
-  with open(f'{base}\\{filename}.jp.srt', encoding="utf-8") as f:
+  with open(os.path.join(base, f'{filename}.jp.srt'), encoding="utf-8") as f:
     lines = f.readlines()
   print("GEN")
   line_count = 0
@@ -89,11 +90,11 @@ for filename in files:
     if not l.isdigit() and len(l):
       contents.append((idx, l))
 
-  outf = open(f'{base}\\{filename}.zh-cn.srt', 'w', encoding="utf-8")
+  outf = open(os.path.join(base, f'{filename}.zh-cn.srt'), 'w', encoding="utf-8")
   progress = 0
   translated = lines[:]
   bar = tqdm.tqdm(total=line_count)
-  batchsize = 250
+  batchsize = 300
   bar.update(resume)
   prompt_parts = []
   for start in range(resume, len(contents), batchsize):

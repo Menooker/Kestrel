@@ -74,9 +74,10 @@ def recover_from_translate_result(path) -> Tuple[List[dict], List[str]]:
             if len(line) == 0:
                 continue
             if line.startswith(role_user):
-                file = genai.get_file(line[len(role_user):])
-                time.sleep(3)
-                prompt_parts.append({"role": "user", "parts": [file]})
+                #file = genai.get_file(line[len(role_user):])
+                #time.sleep(3)
+                #prompt_parts.append({"role": "user", "parts": [file]})
+                pass
             else:
                 contents = line[len(role_model):]
                 prompt_parts.append({"role": "model", "parts": [contents]})
@@ -187,8 +188,9 @@ You should put the real timestamps for the splited blocks in the audio.
                     print(f"Error!!!!!!!!!!!!!!{e}\\nsleeping")
                     time.sleep(60)
             # print(response.text)
+            prompt_parts.pop()
             prompt_parts.append(response.candidates[0].content)
-            record_translate_prompt(outf, file)
+            # record_translate_prompt(outf, file)
             record_translate_result(outf, response)
             responses.append(response.text)
             # print(response.candidates[0].content)
@@ -249,14 +251,18 @@ def convert(video_path: str, tempdir: str, segment: int):
                 curtime += datetime.timedelta(seconds=segment)
                 push_conversation()
             elif "[[" in line and "~" in line:
-                push_conversation()
-                start_time, end_time = line[2:].split("~")
-                st_spl = start_time.split(":")
-                ed_spl = end_time.split(":")
-                st = datetime.timedelta(minutes=int(
-                    st_spl[0]), seconds=int(st_spl[1])) + curtime
-                ed = datetime.timedelta(minutes=int(
-                    ed_spl[0]), seconds=int(ed_spl[1])) + curtime
+                try:
+                    push_conversation()
+                    start_time, end_time = line[2:].split("~")
+                    st_spl = start_time.split(":")
+                    ed_spl = end_time.split(":")
+                    st = datetime.timedelta(minutes=int(
+                        st_spl[0]), seconds=int(st_spl[1])) + curtime
+                    ed = datetime.timedelta(minutes=int(
+                        ed_spl[0]), seconds=int(ed_spl[1])) + curtime
+                except Exception as e:
+                    print("Error when parsing line: ", line)
+                    raise e
             else:
                 conversations.append(line)
         push_conversation()

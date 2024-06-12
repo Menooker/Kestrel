@@ -4,7 +4,7 @@ subs_ai = SubsAI()
 
 base = 'D:\\Temp' #D:\\Temp'
 files = [
-	'111'
+	'VIBY_1548 Title 1'
 ]
 
 video_ext = 'mp4'
