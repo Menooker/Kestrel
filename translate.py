@@ -22,6 +22,7 @@ parser.add_argument("--key", type=str, required=True)
 parser.add_argument("--base", type=str, required=True)
 parser.add_argument('-l','--list', nargs='+', help='<Required> Set flag', required=True)
 parser.add_argument('--resume', type=int, default=0)
+parser.add_argument('--batchsize', type=int, default=200)
 
 args = parser.parse_args()
 
@@ -94,7 +95,7 @@ for filename in files:
   progress = 0
   translated = lines[:]
   bar = tqdm.tqdm(total=line_count)
-  batchsize = 300
+  batchsize = args.batchsize
   bar.update(resume)
   prompt_parts = []
   for start in range(resume, len(contents), batchsize):

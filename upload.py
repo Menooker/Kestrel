@@ -74,10 +74,9 @@ def recover_from_translate_result(path) -> Tuple[List[dict], List[str]]:
             if len(line) == 0:
                 continue
             if line.startswith(role_user):
-                #file = genai.get_file(line[len(role_user):])
-                #time.sleep(3)
-                #prompt_parts.append({"role": "user", "parts": [file]})
-                pass
+                file = genai.get_file(line[len(role_user):])
+                time.sleep(3)
+                prompt_parts.append({"role": "user", "parts": [file]})
             else:
                 contents = line[len(role_model):]
                 prompt_parts.append({"role": "model", "parts": [contents]})
@@ -176,6 +175,7 @@ You should put the real timestamps for the splited blocks in the audio.
     with open(state_file_path, 'a', encoding="utf-8") as outf:
         for uri in bar:
             file = genai.get_file(uri)
+            prompt_parts = prompt_parts[-2*2:]
             prompt_parts.append({"role": "user", "parts": [file]})
             for retries in range(4):
                 try:
@@ -188,9 +188,8 @@ You should put the real timestamps for the splited blocks in the audio.
                     print(f"Error!!!!!!!!!!!!!!{e}\\nsleeping")
                     time.sleep(60)
             # print(response.text)
-            prompt_parts.pop()
             prompt_parts.append(response.candidates[0].content)
-            # record_translate_prompt(outf, file)
+            record_translate_prompt(outf, file)
             record_translate_result(outf, response)
             responses.append(response.text)
             # print(response.candidates[0].content)
@@ -199,6 +198,11 @@ You should put the real timestamps for the splited blocks in the audio.
 
     with open(os.path.join(tempdir, "raw.txt"), 'w', encoding="utf-8") as outf:
         for response in responses:
+            spl = response.split("\n")
+            for idx, line in enumerate(spl):
+                if not line.startswith("[[") and "0" in line and ":" in line and "~" in line:
+                    spl[idx] = "[[" + line
+            response = '\n'.join(spl)
             outf.write(response)
             outf.write("\n=============================\n")
 
