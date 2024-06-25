@@ -57,14 +57,14 @@ def extract_and_upload(fullpath: str, tempdir: str, ffmpeg_path: str, segment_se
 log_split_line = "!!!!!!!!!=================!!!!!!!!!!!!\n"
 role_user = "ROLE=user,"
 role_model = "ROLE=model,"
-def record_translate_prompt(logf, file : genai.types.File):
+def record_transcribe_prompt(logf, file : genai.types.File):
     name = file.name
     logf.write(f"{log_split_line}{role_user}{name}\n")
 
-def record_translate_result(logf, content : genai.types.GenerateContentResponse):
+def record_transcribe_result(logf, content : genai.types.GenerateContentResponse):
     logf.write(f"{log_split_line}ROLE=model,{str(content.text)}\n")
 
-def recover_from_translate_result(path) -> Tuple[List[dict], List[str]]:
+def recover_from_transcribe_result(path) -> Tuple[List[dict], List[str]]:
     prompt_parts = []
     responds = []
     with open(path, encoding="utf-8") as f:
@@ -83,7 +83,7 @@ def recover_from_translate_result(path) -> Tuple[List[dict], List[str]]:
                 responds.append(contents)
     return prompt_parts, responds
 
-def translate(tempdir: str, uris: List[str], segment: int):
+def transcribe(tempdir: str, uris: List[str], segment: int):
     # Set up the model
     generation_config = {
         "temperature": 1,
@@ -169,7 +169,7 @@ You should put the real timestamps for the splited blocks in the audio.
     state_file_path = os.path.join(tempdir, "state.txt")
     if os.path.exists(state_file_path):
         print("Found state file of previous run. Resuming...")
-        prompt_parts, responses = recover_from_translate_result(state_file_path)
+        prompt_parts, responses = recover_from_transcribe_result(state_file_path)
         print("Continue from part", len(responses))
     bar = tqdm.tqdm(uris[len(responses):])
     with open(state_file_path, 'a', encoding="utf-8") as outf:
@@ -189,8 +189,8 @@ You should put the real timestamps for the splited blocks in the audio.
                     time.sleep(60)
             # print(response.text)
             prompt_parts.append(response.candidates[0].content)
-            record_translate_prompt(outf, file)
-            record_translate_result(outf, response)
+            record_transcribe_prompt(outf, file)
+            record_transcribe_result(outf, response)
             responses.append(response.text)
             # print(response.candidates[0].content)
             outf.flush()
@@ -206,7 +206,7 @@ You should put the real timestamps for the splited blocks in the audio.
             outf.write(response)
             outf.write("\n=============================\n")
 
-def convert(video_path: str, tempdir: str, segment: int):
+def convert(video_path: str, tempdir: str, segment: int, lang: str):
     curtime = datetime.datetime.combine(
         datetime.datetime.today().date(), datetime.time(0, 0, 0))
     conversations = []
@@ -299,7 +299,7 @@ def convert(video_path: str, tempdir: str, segment: int):
             results[idx][1] = st + datetime.timedelta(seconds=0.5)
 
     outpathspl = video_path.split(".")
-    outpathspl[-1] = "jp.srt"
+    outpathspl[-1] = lang + ".srt"
     outpath = ".".join(outpathspl)
     with open(outpath, 'w', encoding="utf-8-sig") as outf:
         for idx, (mystart, myend, d) in enumerate(results):
@@ -313,9 +313,11 @@ if __name__ == "__main__":
         "--ffmpeg", type=str, default="D:\\ProgramFiles\\ffmpeg-master-latest-win64-gpl-shared\\bin\\ffmpeg.exe")
     parser.add_argument('--skip-extract', action="store_true", default=False)
     parser.add_argument('--key', type=str, required=True)
-    parser.add_argument('--skip-translate', action="store_true", default=False)
+    parser.add_argument('--skip-transcribe', action="store_true", default=False)
     parser.add_argument(
         "--segment", type=int, default=180)
+    parser.add_argument(
+        "--lang", type=str, default="jp")
     args = parser.parse_args()
     genai.configure(api_key=args.key,  transport="rest")
     video_path = args.path
@@ -323,8 +325,8 @@ if __name__ == "__main__":
     dirpath = os.path.dirname(fullpath)
     tempdir = fullpath + ".dir"
 
-    if not args.skip_translate:
+    if not args.skip_transcribe:
         uri = extract_and_upload(
             fullpath, tempdir, args.ffmpeg, args.segment, args.skip_extract)
-        translate(tempdir, uri, args.segment)
-    convert(video_path, tempdir, args.segment)
+        transcribe(tempdir, uri, args.segment)
+    convert(video_path, tempdir, args.segment, args.lang)

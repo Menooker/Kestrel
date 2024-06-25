@@ -20,11 +20,24 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--key", type=str, required=True)
 parser.add_argument("--base", type=str, required=True)
-parser.add_argument('-l','--list', nargs='+', help='<Required> Set flag', required=True)
+parser.add_argument('-l','--list', nargs='+', help='file names', required=True)
 parser.add_argument('--resume', type=int, default=0)
 parser.add_argument('--batchsize', type=int, default=200)
+parser.add_argument('--in-lang', type=str, default="jp")
+parser.add_argument('--out-lang', type=str, default="zh-cn")
+parser.add_argument('--hint', type=str, default="")
 
 args = parser.parse_args()
+
+base = args.base
+files = args.list
+resume = args.resume
+in_lang = args.in_lang
+out_lang = args.out_lang
+hint = args.hint
+
+language_map = {"zh-cn" : "chinese", "jp" : "japanese", "ja" : "japanese", "en" : "english"}
+target_language = language_map.get(out_lang, out_lang)
 
 genai.configure(api_key=args.key,  transport="rest")
 
@@ -55,30 +68,31 @@ safety_settings = [
   },
 ]
 
-system_instruction = '''Translate a subtitle file.
+system_instruction = f'''Translate a subtitle file.
 You only need to translate the contents of the file.
-Translate to chinese. Output "ENDENDEND" when you reach the end of the input
+Translate to {target_language}. Output "ENDENDEND" when you reach the end of the input
 The input will be like
 
 [[123::content1
 [[124::content2
 
 You only need to translate the contents. The content between "[[" and "::" should be ignored and unchanged in the output.
-Translate to chinese. Translate to chinese. Translate to chinese.
+Translate to {target_language}. Translate to {target_language}. Translate to {target_language}.
+Ignore the unnecessary spaces in the output sentences.
+Ignore the unnecessary spaces in the output sentences.
+For example, don't output "[[124::我的 早饭 是 饭团". Instead, output "[[124::我的早饭是饭团".
+{hint}
 '''
 
 model = genai.GenerativeModel(model_name="gemini-1.5-pro-latest",
                               generation_config=generation_config,
                               system_instruction=system_instruction,
                               safety_settings=safety_settings)
-base = args.base
-files = args.list
-resume = args.resume
 
 print(base, files)
 
 for filename in files:
-  with open(os.path.join(base, f'{filename}.jp.srt'), encoding="utf-8") as f:
+  with open(os.path.join(base, f'{filename}.{in_lang}.srt'), encoding="utf-8-sig") as f:
     lines = f.readlines()
   print("GEN")
   line_count = 0
@@ -91,7 +105,7 @@ for filename in files:
     if not l.isdigit() and len(l):
       contents.append((idx, l))
 
-  outf = open(os.path.join(base, f'{filename}.zh-cn.srt'), 'w', encoding="utf-8")
+  outf = open(os.path.join(base, f'{filename}.{out_lang}.srt'), 'w', encoding="utf-8-sig")
   progress = 0
   translated = lines[:]
   bar = tqdm.tqdm(total=line_count)
