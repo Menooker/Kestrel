@@ -6,7 +6,25 @@ import tqdm
 import time
 import datetime
 import argparse
+import re
 
+def parse_timedelta(s):
+    try:
+        hours, minutes, seconds = map(int, s.split(':'))
+        return datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid time format: {s}. Expected format hh:mm:ss")
+
+def parse_timedelta_tuple_list(s):
+    tuples = s.split(',')
+    result = []
+    for t in tuples:
+        times = t.split('-')
+        if len(times) != 2:
+            raise argparse.ArgumentTypeError(f"Invalid tuple format: {t}. Expected format hh:mm:ss-hh:mm:ss")
+        start, end = times
+        result.append((parse_timedelta(start), parse_timedelta(end)))
+    return result
 
 def extract_mp3(ffmpeg_path: str, fullpath: str, tempdir: str, segment_sec: int):
     os.makedirs(tempdir, exist_ok=True)
@@ -15,8 +33,8 @@ def extract_mp3(ffmpeg_path: str, fullpath: str, tempdir: str, segment_sec: int)
     if ret.returncode != 0:
         raise RuntimeError("ffmpeg returns " + str(ret.returncode))
 
-
-def upload(tempdir: str) -> List[str]:
+skip_filename = "@SKIP@"
+def upload(tempdir: str, segment_sec: int, time_ranges: List[Tuple[datetime.timedelta, datetime.timedelta]]) -> List[str]:
     print("Uploading")
     files = []
     for file in os.listdir(tempdir):
@@ -32,8 +50,22 @@ def upload(tempdir: str) -> List[str]:
                 if len(line):
                     uri.append(line)
     bar = tqdm.tqdm(files[len(uri):])
+    cur = datetime.timedelta(seconds=len(uri)*segment_sec)
+    def in_ranges(s: datetime.timedelta, e: datetime.timedelta):
+        if len(time_ranges) == 0:
+            return True
+        for rst, rend in time_ranges:
+            if s <= rend and e >= rst:
+                return True
+        return False
+
     with open(uripath, "a") as f:
         for file in bar:
+            if not in_ranges(cur, cur + datetime.timedelta(seconds=segment_sec)):
+                f.write(skip_filename+"\n")
+                uri.append(skip_filename)
+                cur += datetime.timedelta(seconds=segment_sec)
+                continue
             bar.set_description(os.path.basename(file))
             sample_file = genai.upload_file(path=file,
                                             mime_type="audio/mp3")
@@ -46,23 +78,25 @@ def upload(tempdir: str) -> List[str]:
                 raise ValueError(sample_file.state.name)
             f.write(sample_file.name+"\n")
             uri.append(sample_file.name)
+            cur += datetime.timedelta(seconds=segment_sec)
     return uri
 
 
-def extract_and_upload(fullpath: str, tempdir: str, ffmpeg_path: str, segment_sec: int, skip_extract: bool) -> List[str]:
+def extract_and_upload(fullpath: str, tempdir: str, ffmpeg_path: str, segment_sec: int, skip_extract: bool, time_ranges: List[Tuple[datetime.timedelta, datetime.timedelta]]) -> List[str]:
     if not skip_extract:
         extract_mp3(ffmpeg_path, fullpath, tempdir, segment_sec)
-    return upload(tempdir)
+    return upload(tempdir, segment_sec, time_ranges)
 
 log_split_line = "!!!!!!!!!=================!!!!!!!!!!!!\n"
 role_user = "ROLE=user,"
 role_model = "ROLE=model,"
 def record_transcribe_prompt(logf, file : genai.types.File):
-    name = file.name
+    name = skip_filename if file is None else file.name
     logf.write(f"{log_split_line}{role_user}{name}\n")
 
 def record_transcribe_result(logf, content : genai.types.GenerateContentResponse):
-    logf.write(f"{log_split_line}ROLE=model,{str(content.text)}\n")
+    cont = skip_filename if content is None else str(content.text)
+    logf.write(f"{log_split_line}ROLE=model,{cont}\n")
 
 def recover_from_transcribe_result(path) -> Tuple[List[dict], List[str]]:
     prompt_parts = []
@@ -74,13 +108,19 @@ def recover_from_transcribe_result(path) -> Tuple[List[dict], List[str]]:
             if len(line) == 0:
                 continue
             if line.startswith(role_user):
-                file = genai.get_file(line[len(role_user):])
-                time.sleep(3)
-                prompt_parts.append({"role": "user", "parts": [file]})
+                filename = line[len(role_user):]
+                if filename != skip_filename:
+                    file = genai.get_file(filename)
+                    time.sleep(3)
+                    prompt_parts.append({"role": "user", "parts": [file]})
             else:
                 contents = line[len(role_model):]
-                prompt_parts.append({"role": "model", "parts": [contents]})
-                responds.append(contents)
+                if contents != skip_filename:
+                    prompt_parts.append({"role": "model", "parts": [contents]})
+                    responds.append(contents)
+                else:
+                    responds.append("")
+
     return prompt_parts, responds
 
 def transcribe(tempdir: str, uris: List[str], segment: int):
@@ -174,6 +214,12 @@ You should put the real timestamps for the splited blocks in the audio.
     bar = tqdm.tqdm(uris[len(responses):])
     with open(state_file_path, 'a', encoding="utf-8") as outf:
         for uri in bar:
+            if uri == skip_filename:
+                record_transcribe_prompt(outf, None)
+                record_transcribe_result(outf, None)
+                responses.append("")
+                outf.flush()
+                continue
             file = genai.get_file(uri)
             prompt_parts = prompt_parts[-2*2:]
             prompt_parts.append({"role": "user", "parts": [file]})
@@ -318,6 +364,7 @@ if __name__ == "__main__":
         "--segment", type=int, default=180)
     parser.add_argument(
         "--lang", type=str, default="jp")
+    parser.add_argument('--times', type=parse_timedelta_tuple_list, help='List of time intervals in the format "hh:mm:ss-hh:mm:ss,hh:mm:ss-hh:mm:ss"', default=[])
     args = parser.parse_args()
     genai.configure(api_key=args.key,  transport="rest")
     video_path = args.path
@@ -327,6 +374,6 @@ if __name__ == "__main__":
 
     if not args.skip_transcribe:
         uri = extract_and_upload(
-            fullpath, tempdir, args.ffmpeg, args.segment, args.skip_extract)
+            fullpath, tempdir, args.ffmpeg, args.segment, args.skip_extract, args.times)
         transcribe(tempdir, uri, args.segment)
     convert(video_path, tempdir, args.segment, args.lang)
