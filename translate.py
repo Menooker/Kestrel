@@ -112,12 +112,18 @@ for filename in files:
   batchsize = args.batchsize
   bar.update(resume)
   prompt_parts = []
-  for start in range(resume, len(contents), batchsize):
-    content_slice = contents[start:start+batchsize]
-    promp = [f"[[{c[0]}::{c[1]}" for c in content_slice]
-    # print("range:", content_slice[0][0], content_slice[-1][0])
-    # print(promp)
-    prompt_parts.append({"role":"user", "parts":"\n".join(promp)})
+  # for start in range(resume, len(contents), batchsize):
+  start = resume
+  while start < len(contents):
+    prompt_parts = prompt_parts[-15*2:]
+    def make_promp():
+      content_slice = contents[start:start+batchsize]
+      promp = [f"[[{c[0]}::{c[1]}" for c in content_slice]
+      # print("range:", content_slice[0][0], content_slice[-1][0])
+      # print(promp)
+      prompt_parts.append({"role":"user", "parts":"\n".join(promp)})
+      return content_slice, promp
+    content_slice, promp = make_promp()
     done = False
     outtxt = ""
     while not done:
@@ -129,6 +135,13 @@ for filename in files:
         except Exception as e:
           print(f"Error!!!!!!!!!!!!!!{e}\\nsleeping")
           time.sleep(60)
+          if 'Remote end closed connection without response' in str(e):
+            batchsize /= 2
+            if batchsize == 0:
+              batchsize = 1
+            prompt_parts.pop()
+            content_slice, promp = make_promp()
+            print("Retry with BS=", batchsize)
       for part in response:
         outtxt+=part.text
         if "ENDENDEND" in outtxt or outtxt.count("[[") >= len(content_slice):
@@ -156,5 +169,6 @@ for filename in files:
     for idx in range(progress, end_idx+1):
       outf.write(translated[idx])
     progress = end_idx+1
+    start += batchsize
   outf.flush()
   outf.close()
