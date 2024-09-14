@@ -136,7 +136,7 @@ for filename in files:
           print(f"Error!!!!!!!!!!!!!!{e}\\nsleeping")
           time.sleep(60)
           if 'Remote end closed connection without response' in str(e):
-            batchsize /= 2
+            batchsize //= 2
             if batchsize == 0:
               batchsize = 1
             prompt_parts.pop()
@@ -168,6 +168,7 @@ for filename in files:
     end_idx = content_slice[-1][0]
     for idx in range(progress, end_idx+1):
       outf.write(translated[idx])
+    outf.flush()
     progress = end_idx+1
     start += batchsize
   outf.flush()

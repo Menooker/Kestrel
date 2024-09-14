@@ -152,8 +152,9 @@ def transcribe(tempdir: str, uris: List[str], segment: int):
     ]
 
     system_instruction = '''You make the subtitles for an audio. Transcribe the conversations in the audio.
+Split the transcription into short sentences and mark their time stamps.
 
-The timestamp should be MM:SS which is minute and seconds in the current audio. It should be the start and end time for the conversation.
+The timestamp should be MM:SS which is minute and seconds in the current audio. It should be the start and end time for each conversation.
 example of output subtitles format:
 [[00:00~00:05
 一行翻译内容
@@ -165,8 +166,9 @@ You MUST follow the following instructions:
 Take down every sentences. Do not miss one.
 Do not describe the audio. Do not describe the sound if it is NOT conversation. Instead, write down exactly the conversations.
 The sentences spoken by different speakers should not be place in the same timestamp. Instead, put the dialogues into different timestamps.
-Every sentence should NOT last more than 10 seconds.
+Every sentence should NOT last more than 5 seconds.
 You don't need to specify the person who say the line.
+The audio is given to you one segment by one, in their order in time. The time stemps should be independent for each segment.
 
 you need to do follows before output:
 1. Remove the filler words, like "well", “嗯” ，“呃”.
@@ -175,26 +177,22 @@ For example, don't output "我们 嗯 吃了不少 嗯 东西". Instead, output 
 2. Remove the unnecessary spaces between words in a sentence. Combine the words into sentences, instead of separated words and terms!
 For example, don't output "我的 早饭 是 饭团". Instead, output ""我的早饭是饭团".
 
-3. If a sentence is long, split it into multiple sentences with different timestamps using another block.
-For example, don't output:
-```
-[[00:05~00:30
-第一句话，第二句话。第三句话，这是非常长的一句话，真的非常非常非常非常非常非常非常非常非常非常非常长啊，没想到吧
-```
+3. If a sentence is long, break it into multiple sentences with length less than 5 seconds, with different timestamps using another blocks. 
+You should put the real timestamps for the splited blocks in the audio. Every sentence should NOT last more than 5 seconds.
+Every sentence should NOT last more than 5 seconds.
 
-Instead, output
-```
+Example output:
+
 [[00:05~00:10
 第一句话，第二句话。第三句话
 
-[[00:10~00:20
+[[00:10~00:14
 这是非常长的一句话
 
-[[00:20~00:30
+[[00:14~00:19
 真的非常非常非常非常非常非常非常非常非常非常非常长啊，没想到吧
-```
 
-You should put the real timestamps for the splited blocks in the audio.
+
 '''
     'If you reach the end of the audio, output an additional "ENDENDEND"'
     ''
