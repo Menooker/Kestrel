@@ -78,9 +78,9 @@ The input will be like
 
 You only need to translate the contents. The content between "[[" and "::" should be ignored and unchanged in the output.
 Translate to {target_language}. Translate to {target_language}. Translate to {target_language}.
-Ignore the unnecessary spaces in the output sentences.
-Ignore the unnecessary spaces in the output sentences.
-For example, don't output "[[124::我的 早饭 是 饭团". Instead, output "[[124::我的早饭是饭团".
+Remove the unnecessary spaces in the output sentences.
+Remove the unnecessary spaces in the output sentences.
+Don't output unnecessary spaces in the output sentences between words.
 {hint}
 '''
 

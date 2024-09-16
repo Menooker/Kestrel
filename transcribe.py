@@ -82,6 +82,9 @@ def upload(tempdir: str, segment_sec: int, time_ranges: List[Tuple[datetime.time
     return uri
 
 
+def cleanup_timestamp(s: str) -> str:
+    return "\n".join(filter(lambda x: not x.startswith("[["), s.split("\n")))
+
 def extract_and_upload(fullpath: str, tempdir: str, ffmpeg_path: str, segment_sec: int, skip_extract: bool, time_ranges: List[Tuple[datetime.timedelta, datetime.timedelta]]) -> List[str]:
     if not skip_extract:
         extract_mp3(ffmpeg_path, fullpath, tempdir, segment_sec)
@@ -110,9 +113,10 @@ def recover_from_transcribe_result(path) -> Tuple[List[dict], List[str]]:
             if line.startswith(role_user):
                 filename = line[len(role_user):]
                 if filename != skip_filename:
-                    file = genai.get_file(filename)
-                    time.sleep(3)
-                    prompt_parts.append({"role": "user", "parts": [file]})
+                    # file = genai.get_file(filename)
+                    # time.sleep(3)
+                    # prompt_parts.append({"role": "user", "parts": [file]})
+                    pass
             else:
                 contents = line[len(role_model):]
                 if contents != skip_filename:
@@ -154,21 +158,23 @@ def transcribe(tempdir: str, uris: List[str], segment: int):
     system_instruction = '''You make the subtitles for an audio. Transcribe the conversations in the audio.
 Split the transcription into short sentences and mark their time stamps.
 
+I may give you previous conversation context in textual form. And I will give you an audio segment. You only need to transcribe the audio.
+The textual inputs are only for your reference. Do NOT directly use them as output. Transcribe the given audio only.
+
 The timestamp should be MM:SS which is minute and seconds in the current audio. It should be the start and end time for each conversation.
 example of output subtitles format:
 [[00:00~00:05
-一行翻译内容
+some contents
 
 [[00:05~00:09
-一行翻译内容
+some contents
 
 You MUST follow the following instructions:
 Take down every sentences. Do not miss one.
 Do not describe the audio. Do not describe the sound if it is NOT conversation. Instead, write down exactly the conversations.
 The sentences spoken by different speakers should not be place in the same timestamp. Instead, put the dialogues into different timestamps.
-Every sentence should NOT last more than 5 seconds.
+Every sentence should NOT last more than 7 seconds.
 You don't need to specify the person who say the line.
-The audio is given to you one segment by one, in their order in time. The time stemps should be independent for each segment.
 
 you need to do follows before output:
 1. Remove the filler words, like "well", “嗯” ，“呃”.
@@ -177,9 +183,9 @@ For example, don't output "我们 嗯 吃了不少 嗯 东西". Instead, output 
 2. Remove the unnecessary spaces between words in a sentence. Combine the words into sentences, instead of separated words and terms!
 For example, don't output "我的 早饭 是 饭团". Instead, output ""我的早饭是饭团".
 
-3. If a sentence is long, break it into multiple sentences with length less than 5 seconds, with different timestamps using another blocks. 
-You should put the real timestamps for the splited blocks in the audio. Every sentence should NOT last more than 5 seconds.
-Every sentence should NOT last more than 5 seconds.
+3. If a sentence is long, break it into multiple sentences with length less than 7 seconds, with different timestamps using another blocks. 
+You should put the real timestamps for the splited blocks in the audio. Every sentence should NOT last more than 7 seconds.
+Every sentence should NOT last more than 7 seconds.
 
 Example output:
 
@@ -209,6 +215,7 @@ Example output:
         print("Found state file of previous run. Resuming...")
         prompt_parts, responses = recover_from_transcribe_result(state_file_path)
         print("Continue from part", len(responses))
+    last_result = "" if len(responses) == 0 else cleanup_timestamp(responses[-1])
     bar = tqdm.tqdm(uris[len(responses):])
     with open(state_file_path, 'a', encoding="utf-8") as outf:
         for uri in bar:
@@ -219,8 +226,7 @@ Example output:
                 outf.flush()
                 continue
             file = genai.get_file(uri)
-            prompt_parts = prompt_parts[-2*2:]
-            prompt_parts.append({"role": "user", "parts": [file]})
+            prompt_parts = {"role": "user", "parts": ["Previous context:\n" + last_result, file] if last_result else [file]}
             for retries in range(4):
                 try:
                     response = model.generate_content(prompt_parts, request_options={"timeout": 600})
@@ -232,7 +238,7 @@ Example output:
                     print(f"Error!!!!!!!!!!!!!!{e}\\nsleeping")
                     time.sleep(60)
             # print(response.text)
-            prompt_parts.append(response.candidates[0].content)
+            last_result = cleanup_timestamp(response.text)
             record_transcribe_prompt(outf, file)
             record_transcribe_result(outf, response)
             responses.append(response.text)
