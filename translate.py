@@ -76,7 +76,22 @@ The input will be like
 [[123::content1
 [[124::content2
 
-You only need to translate the contents. The content between "[[" and "::" should be ignored and unchanged in the output.
+The input is segmented with "[[". Each segments starts with a "[[", followed by an content ID and a "::". Then comes the content.
+You only need to translate the contents. The content IDs between "[[" and "::" should be outputed as is, and remain unchanged in the output.
+Please align the translated contents with the content IDs of its the original input respectively.
+Do not miss or re-order any contents.
+
+Output should be like
+
+[[123::内容1
+[[124::内容2
+
+Do not output the following which merges the contents of two segments.
+
+[[123::内容1内容2
+
+Instead, align the translated contents with the original contents and their IDs. The number of output segments should exactly match the input segments.
+
 Translate to {target_language}. Translate to {target_language}. Translate to {target_language}.
 Remove the unnecessary spaces in the output sentences.
 Remove the unnecessary spaces in the output sentences.
@@ -105,8 +120,13 @@ for filename in files:
     if not l.isdigit() and len(l):
       contents.append((idx, l))
 
-  outf = open(os.path.join(base, f'{filename}.{out_lang}.srt'), 'w', encoding="utf-8-sig")
-  progress = 0
+  outf = open(os.path.join(base, f'{filename}.{out_lang}.srt'), 'w' if resume == 0 else 'a', encoding="utf-8-sig")
+  if resume == 0:
+    progress = 0
+  else:
+    progress = lines.index(str(resume+1) + "\n")
+    if progress < 0:
+      raise RuntimeError("Cannot find resume point")
   translated = lines[:]
   bar = tqdm.tqdm(total=line_count)
   batchsize = args.batchsize
@@ -127,14 +147,17 @@ for filename in files:
     done = False
     outtxt = ""
     while not done:
-      for retries in range(3):
+      for retries in range(6):
         try:
           response = model.generate_content(prompt_parts, stream=False)
           time.sleep(15)
           break
         except Exception as e:
+          if retries == 5:
+            raise e
           print(f"Error!!!!!!!!!!!!!!{e}\\nsleeping")
-          time.sleep(60)
+          is_internal_err = "An internal error has occurred." in str(e)
+          time.sleep(20 if is_internal_err else 60)
           if 'Remote end closed connection without response' in str(e):
             batchsize //= 2
             if batchsize == 0:

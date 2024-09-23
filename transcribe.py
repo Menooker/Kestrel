@@ -227,18 +227,21 @@ Example output:
                 continue
             file = genai.get_file(uri)
             prompt_parts = {"role": "user", "parts": ["Previous context:\n" + last_result, file] if last_result else [file]}
-            for retries in range(4):
+            for retries in range(6):
                 try:
                     response = model.generate_content(prompt_parts, request_options={"timeout": 600})
+                    last_result = cleanup_timestamp(response.text)
                     time.sleep(15)
                     break
                 except Exception as e:
-                    if retries == 3:
+                    if retries == 5:
                         raise e
                     print(f"Error!!!!!!!!!!!!!!{e}\\nsleeping")
-                    time.sleep(60)
+                    if " An internal error has occurred." in str(e):
+                        time.sleep(20)
+                    else:
+                        time.sleep(60)
             # print(response.text)
-            last_result = cleanup_timestamp(response.text)
             record_transcribe_prompt(outf, file)
             record_transcribe_result(outf, response)
             responses.append(response.text)
