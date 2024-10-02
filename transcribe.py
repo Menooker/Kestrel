@@ -173,7 +173,7 @@ You MUST follow the following instructions:
 Take down every sentences. Do not miss one.
 Do not describe the audio. Do not describe the sound if it is NOT conversation. Instead, write down exactly the conversations.
 The sentences spoken by different speakers should not be place in the same timestamp. Instead, put the dialogues into different timestamps.
-Every sentence should NOT last more than 7 seconds.
+Every sentence should NOT last more than 10 seconds.
 You don't need to specify the person who say the line.
 
 you need to do follows before output:
@@ -183,9 +183,9 @@ For example, don't output "我们 嗯 吃了不少 嗯 东西". Instead, output 
 2. Remove the unnecessary spaces between words in a sentence. Combine the words into sentences, instead of separated words and terms!
 For example, don't output "我的 早饭 是 饭团". Instead, output ""我的早饭是饭团".
 
-3. If a sentence is long, break it into multiple sentences with length less than 7 seconds, with different timestamps using another blocks. 
-You should put the real timestamps for the splited blocks in the audio. Every sentence should NOT last more than 7 seconds.
-Every sentence should NOT last more than 7 seconds.
+3. If a sentence is long, break it into multiple sentences with length less than 10 seconds, with different timestamps using another blocks. 
+You should put the real timestamps for the splited blocks in the audio. Every sentence should NOT last more than 10 seconds.
+Every sentence should NOT last more than 10 seconds.
 
 Example output:
 

@@ -96,6 +96,7 @@ Translate to {target_language}. Translate to {target_language}. Translate to {ta
 Remove the unnecessary spaces in the output sentences.
 Remove the unnecessary spaces in the output sentences.
 Don't output unnecessary spaces in the output sentences between words.
+For example, don't output "我们 嗯 吃了不少 嗯 东西". Instead, output "我们吃了不少东西".
 {hint}
 '''
 
