@@ -76,27 +76,11 @@ The input will be like
 [[123::content1
 [[124::content2
 
-The input is segmented with "[[". Each segments starts with a "[[", followed by an content ID and a "::". Then comes the content.
-You only need to translate the contents. The content IDs between "[[" and "::" should be outputed as is, and remain unchanged in the output.
-Please align the translated contents with the content IDs of its the original input respectively.
-Do not miss or re-order any contents.
-
-Output should be like
-
-[[123::内容1
-[[124::内容2
-
-Do not output the following which merges the contents of two segments.
-
-[[123::内容1内容2
-
-Instead, align the translated contents with the original contents and their IDs. The number of output segments should exactly match the input segments.
-
+You only need to translate the contents. The content between "[[" and "::" should be ignored and unchanged in the output.
 Translate to {target_language}. Translate to {target_language}. Translate to {target_language}.
-Remove the unnecessary spaces in the output sentences.
-Remove the unnecessary spaces in the output sentences.
-Don't output unnecessary spaces in the output sentences between words.
-For example, don't output "我们 嗯 吃了不少 嗯 东西". Instead, output "我们吃了不少东西".
+Ignore the unnecessary spaces in the output sentences.
+Ignore the unnecessary spaces in the output sentences.
+For example, don't output "[[124::我的 早饭 是 饭团". Instead, output "[[124::我的早饭是饭团".
 {hint}
 '''
 
@@ -136,7 +120,7 @@ for filename in files:
   # for start in range(resume, len(contents), batchsize):
   start = resume
   while start < len(contents):
-    prompt_parts = prompt_parts[-15*2:]
+    prompt_parts = prompt_parts[-3*2:]
     def make_promp():
       content_slice = contents[start:start+batchsize]
       promp = [f"[[{c[0]}::{c[1]}" for c in content_slice]

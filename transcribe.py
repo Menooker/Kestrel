@@ -127,7 +127,7 @@ def recover_from_transcribe_result(path) -> Tuple[List[dict], List[str]]:
 
     return prompt_parts, responds
 
-def transcribe(tempdir: str, uris: List[str], segment: int):
+def transcribe(tempdir: str, uris: List[str], segment: int, hint: str):
     # Set up the model
     generation_config = {
         "temperature": 1,
@@ -202,7 +202,8 @@ Example output:
 '''
     'If you reach the end of the audio, output an additional "ENDENDEND"'
     ''
-
+    if hint:
+        system_instruction += "More hints on the contents:" + hint
     print("Translating")
     model = genai.GenerativeModel(model_name="gemini-1.5-pro-latest",
                                   generation_config=generation_config,
@@ -372,6 +373,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lang", type=str, default="jp")
     parser.add_argument('--times', type=parse_timedelta_tuple_list, help='List of time intervals in the format "hh:mm:ss-hh:mm:ss,hh:mm:ss-hh:mm:ss"', default=[])
+    parser.add_argument("--hint", type=str, default="")
     args = parser.parse_args()
     genai.configure(api_key=args.key,  transport="rest")
     video_path = args.path
@@ -382,5 +384,5 @@ if __name__ == "__main__":
     if not args.skip_transcribe:
         uri = extract_and_upload(
             fullpath, tempdir, args.ffmpeg, args.segment, args.skip_extract, args.times)
-        transcribe(tempdir, uri, args.segment)
+        transcribe(tempdir, uri, args.segment, args.hint)
     convert(video_path, tempdir, args.segment, args.lang)
