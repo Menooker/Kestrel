@@ -49,7 +49,7 @@ Kestrel depends on [ffmpeg](https://ffmpeg.org/) to extract and compress the aud
 Run
 
 ```bash
-python transcribe.py --path PATH/to/video/or/audio/file --ffmpeg PATH/to/ffmpeg/executable/file --key GEMINI_KEY [--segment SEGMENT] [--skip-transcribe] [--skip-extract] [--lang LANG]
+python transcribe.py --path PATH/to/video/or/audio/file --ffmpeg PATH/to/ffmpeg/executable/file --key GEMINI_KEY [--segment SEGMENT] [--skip-transcribe] [--skip-extract] [--lang LANG] [--hint HINT]
 ```
 
 In some systems, you may need to use `python3` in the above command.
@@ -63,6 +63,7 @@ Explanations of the options above:
  * `--lang` - optional output language in the file name, default=jp. The output language it **not** auto-detected. This option only affects the output file name.
  * `--skip-extract` - optionally resume the previous run by skipping both "extract" step (see below).
  * `--skip-transcribe` - optionally resume the previous run by skipping both "extract" and "transcribe" step (see below).
+ * `--hint` - optional. additional hint/prompts to the model.
 
 After successfully running the script, the subtitle file of the input media file will be generated at the same directory of the file. For example, if the input file is at `/home/1.mp4`, the output subtitle file will be at `/home/1.{lang}.srt`, where `{lang}` is the user-specified language given via `--lang` option.
 

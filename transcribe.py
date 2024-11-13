@@ -216,7 +216,7 @@ Example output:
         print("Found state file of previous run. Resuming...")
         prompt_parts, responses = recover_from_transcribe_result(state_file_path)
         print("Continue from part", len(responses))
-    last_result = "" if len(responses) == 0 else cleanup_timestamp(responses[-1])
+    last_result = "(None)" if len(responses) == 0 else cleanup_timestamp(responses[-1])
     bar = tqdm.tqdm(uris[len(responses):])
     with open(state_file_path, 'a', encoding="utf-8") as outf:
         for uri in bar:
@@ -227,12 +227,12 @@ Example output:
                 outf.flush()
                 continue
             file = genai.get_file(uri)
-            prompt_parts = {"role": "user", "parts": ["Previous context:\n" + last_result, file] if last_result else [file]}
+            prompt_parts = {"role": "user", "parts": ["Previous context that may be related to the next audio:\n" + last_result + "\nPlease transcribe the following audio:", file] if last_result else [file]}
             for retries in range(6):
                 try:
                     response = model.generate_content(prompt_parts, request_options={"timeout": 600})
                     last_result = cleanup_timestamp(response.text)
-                    time.sleep(15)
+                    time.sleep(10)
                     break
                 except Exception as e:
                     if retries == 5:
@@ -264,8 +264,7 @@ def convert(video_path: str, tempdir: str, segment: int, lang: str):
     curtime = datetime.datetime.combine(
         datetime.datetime.today().date(), datetime.time(0, 0, 0))
     conversations = []
-    results: List[Tuple[datetime.datetime, datetime.datetime, str]] = []
-
+    segments : List[Tuple[datetime.datetime, List[List[datetime.timedelta, datetime.timedelta, str]]]] = [(curtime, [])]
     def push_conversation():
         nonlocal conversations
         if len(conversations) == 0:
@@ -294,7 +293,7 @@ def convert(video_path: str, tempdir: str, segment: int, lang: str):
             mystart = st
             myend = ed
             d = " ".join(conversations)
-            results.append([mystart, myend, d])
+            segments[-1][1].append([mystart, myend, d])
             # results.append(f"{mystart.hour:02d}:{mystart.minute:02d}:{mystart.second:02d},000 --> {myend.hour:02d}:{myend.minute:02d}:{myend.second:02d},000\n{d}\n")
         # d = "\n".join(conversations)
         # results.append(f"{st.hour:02d}:{st.minute:02d}:{st.second:02d},000 --> {ed.hour:02d}:{ed.minute:02d}:{ed.second:02d},000\n{d}\n")
@@ -306,8 +305,9 @@ def convert(video_path: str, tempdir: str, segment: int, lang: str):
             if len(line) == 0:
                 continue
             if "=========" in line:
-                curtime += datetime.timedelta(seconds=segment)
                 push_conversation()
+                curtime += datetime.timedelta(seconds=segment)
+                segments.append((curtime, []))
             elif "[[" in line and "~" in line:
                 try:
                     push_conversation()
@@ -315,15 +315,26 @@ def convert(video_path: str, tempdir: str, segment: int, lang: str):
                     st_spl = start_time.split(":")
                     ed_spl = end_time.split(":")
                     st = datetime.timedelta(minutes=int(
-                        st_spl[0]), seconds=int(st_spl[1])) + curtime
+                        st_spl[0]), seconds=int(st_spl[1]))
                     ed = datetime.timedelta(minutes=int(
-                        ed_spl[0]), seconds=int(ed_spl[1])) + curtime
+                        ed_spl[0]), seconds=int(ed_spl[1]))
                 except Exception as e:
                     print("Error when parsing line: ", line)
                     raise e
             else:
                 conversations.append(line)
         push_conversation()
+    # adjust the segment offsets
+    results: List[List[datetime.datetime, datetime.datetime, str]] = []
+    for seg_start, conv in segments:
+        if len(conv) == 0:
+            continue
+        _, last_ed, _ = conv[-1]
+        scale = 1
+        if last_ed.seconds > segment:
+            scale = segment / last_ed.seconds
+        for st, ed, d in conv:
+            results.append([st*scale+seg_start, ed*scale+seg_start, d])
     # adjust start timestamps
     idx = 0
     while idx < len(results):
