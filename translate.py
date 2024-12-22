@@ -20,7 +20,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--key", type=str, required=True)
 parser.add_argument("--base", type=str, required=True)
-parser.add_argument('-l','--list', nargs='+', help='file names', required=True)
+parser.add_argument('-l','--list', nargs='+', help='file names', default=[], required=True)
 parser.add_argument('--resume', type=int, default=0)
 parser.add_argument('--batchsize', type=int, default=200)
 parser.add_argument('--in-lang', type=str, default="jp")
