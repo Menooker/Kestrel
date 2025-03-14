@@ -47,7 +47,7 @@ def translate(model, base: str, resume: int, outfile):
         lines = f.readlines()
     bar = tqdm(total=len(lines), initial=resume)
     idx = resume
-    batch = 50
+    batch = 70
     prompt_parts = []
     while idx < len(lines):
         batch_data = lines[idx: idx+batch]
@@ -74,7 +74,7 @@ def translate(model, base: str, resume: int, outfile):
         bar.update(len(batch_data))
         idx += len(batch_data)
         prompt_parts.append(response.candidates[0].content)
-        prompt_parts = prompt_parts[-4:]
+        prompt_parts = prompt_parts[-2:]
     # image.save(os.path.join(base, new_fn) + ".jpg", optimize=True)
 
 def main(key: str, base: str, out: str, resume: int, hint: str):
