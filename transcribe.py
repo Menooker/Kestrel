@@ -205,7 +205,7 @@ Example output:
     if hint:
         system_instruction += "More hints on the contents:" + hint
     print("Translating")
-    model = genai.GenerativeModel(model_name="gemini-1.5-pro-latest",
+    model = genai.GenerativeModel(model_name="gemini-2.0-flash",
                                   generation_config=generation_config,
                                   system_instruction=system_instruction,
                                   safety_settings=safety_settings)
@@ -232,7 +232,7 @@ Example output:
                 try:
                     response = model.generate_content(prompt_parts, request_options={"timeout": 600})
                     last_result = cleanup_timestamp(response.text)
-                    time.sleep(10)
+                    time.sleep(5)
                     break
                 except Exception as e:
                     if retries == 5:
