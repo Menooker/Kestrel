@@ -52,13 +52,13 @@ def clean_line_breaks(s: str) -> str:
             newlines.append(line)
             newlines.append("\n")
             continue
-        newlines.append(line[:-1])
+        newlines.append(line)
     return "".join(newlines)
         
 
         
 
-def do_ocr(model, base: str, resume: int, outfile):
+def do_ocr(model, rotate: bool, base: str, resume: int, outfile):
     files = [f for f in os.listdir(base) if f.lower().endswith(".jpg") and not f.startswith("compressed_") and os.path.isfile(os.path.join(base, f))]
     files = sorted(files)
     bar = tqdm(total=len(files), initial=resume)
@@ -67,8 +67,9 @@ def do_ocr(model, base: str, resume: int, outfile):
             continue
         src = os.path.join(base, f)
         image = Image.open(src)
-        # x,y = image.size
-        # image = image.rotate(180, Image.NEAREST, expand = 1)
+        x,y = image.size
+        if x < y and rotate:
+            image = image.rotate(90, Image.NEAREST, expand = 1)
         # new_fn = "compressed_" + Path(f).stem
         # print(src, "->", new_fn)
         image = image.resize((1024, 768), Image.Resampling.LANCZOS)
@@ -93,10 +94,10 @@ def do_ocr(model, base: str, resume: int, outfile):
         bar.update(1)
     # image.save(os.path.join(base, new_fn) + ".jpg", optimize=True)
 
-def main(key: str, base: str, out: str, resume: int):
+def main(key: str, rotate: bool, base: str, out: str, resume: int):
     model = get_model(key)
     with open(out, 'a', encoding="utf-8-sig") as f:
-        do_ocr(model, base, resume, f)
+        do_ocr(model, rotate, base, resume, f)
 
 if __name__ == "__main__":
 
@@ -104,7 +105,8 @@ if __name__ == "__main__":
     parser.add_argument("--key", type=str, required=True)
     parser.add_argument("--base", type=str, required=True)
     parser.add_argument("--out", type=str, required=True)
+    parser.add_argument("--no-rotate", action="store_true", default=True)
     parser.add_argument('--resume', type=int, default=0)
 
     args = parser.parse_args()
-    main(args.key, args.base, args.out, args.resume)
+    main(args.key, not args.no_rotate, args.base, args.out, args.resume)
