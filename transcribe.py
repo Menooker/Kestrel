@@ -71,7 +71,7 @@ def upload(tempdir: str, segment_sec: int, time_ranges: List[Tuple[datetime.time
                                             mime_type="audio/mp3")
 
             while sample_file.state.name == "PROCESSING":
-                time.sleep(10)
+                time.sleep(3)
                 sample_file = genai.get_file(sample_file.name)
 
             if sample_file.state.name == "FAILED":
