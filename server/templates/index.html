@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>视频字幕处理</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            background: #f7f7fa;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 420px;
+            margin: 40px auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 32px 28px 24px 28px;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 24px;
+        }
+        form label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        form input[type="text"],
+        form input[type="number"] {
+            width: 100%;
+            padding: 8px 10px;
+            margin-bottom: 18px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 15px;
+            box-sizing: border-box;
+        }
+        form input[type="submit"] {
+            width: 100%;
+            background: #4f8cff;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 0;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        form input[type="submit"]:hover {
+            background: #357ae8;
+        }
+        .messages {
+            margin-bottom: 18px;
+            padding: 10px;
+            background: #eaf6ff;
+            border-radius: 6px;
+            color: #2a5d9f;
+            font-size: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>视频字幕处理</h2>
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="messages">
+            {% for message in messages %}
+              <div>{{ message }}</div>
+            {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+        <form method="post">
+            <label for="video_path">视频路径</label>
+            <input type="text" name="video_path" id="video_path" required>
+
+            <label for="api_key">API Key</label>
+            <input type="text" name="api_key" id="api_key" required>
+
+            <label for="batchsize">Batchsize</label>
+            <input type="number" name="batchsize" id="batchsize" value="50">
+
+            <label for="hint">Hint</label>
+            <input type="text" name="hint" id="hint">
+
+            <input type="submit" value="开始处理">
+        </form>
+        <div id="progress" style="margin-top:24px; background:#222; color:#eee; padding:12px; border-radius:8px; font-size:14px; display:none; white-space:pre-wrap; max-height:300px; overflow:auto;"></div>
+    </div>
+    <script>
+    document.querySelector('form').onsubmit = function(e) {
+        e.preventDefault();
+        document.getElementById('progress').style.display = 'block';
+        document.getElementById('progress').textContent = '任务已启动，正在处理...';
+        fetch('/start', {
+            method: 'POST',
+            body: new FormData(this)
+        }).then(() => {
+            pollProgress();
+        });
+    };
+    function pollProgress() {
+        fetch('/progress').then(r => r.json()).then(data => {
+            document.getElementById('progress').textContent = data.output;
+            if (data.running) {
+                setTimeout(pollProgress, 1500);
+            } else {
+                document.getElementById('progress').textContent += '\\n任务已完成！';
+            }
+        });
+    }
+    </script>
+</body>
+</html>
