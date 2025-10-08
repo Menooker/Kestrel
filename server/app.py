@@ -1,8 +1,16 @@
 
+
+import argparse
 from flask import Flask, render_template, request, jsonify
 import subprocess
 import os
 import threading
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--api-key', type=str, required=True, help='Google Gemini API Key')
+parser.add_argument('--path-env', type=str, required=True, help='Path enviroment variable')
+parser.add_argument('--proxy', type=str, default="http://127.0.0.1:8010", help='Proxy for API requests')
+args, unknown = parser.parse_known_args()
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -26,13 +34,20 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
         '--video_ext', video_ext
     ]
     process_info['step'] = 'transcribe'
-    proc1 = subprocess.Popen(cmd1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True)
+    envr = os.environ.copy()
+    envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
+    proc1 = subprocess.Popen(cmd1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr)
     process_info['proc'] = proc1
     for line in proc1.stdout:
         process_info['log'].append('[转录] ' + line)
     proc1.wait()
     process_info['proc'] = None
-
+    api_key = api_key if api_key else args.api_key
+    envr = os.environ.copy()
+    envr["HTTP_PROXY"] = args.proxy
+    envr["HTTPS_PROXY"] = args.proxy
+    envr['http_proxy'] = args.proxy
+    envr['https_proxy'] = args.proxy
     # Step 2: translate.py
     cmd2 = [
         'python', 'translate.py',
@@ -43,7 +58,7 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
         '--hint', hint
     ]
     process_info['step'] = 'translate'
-    proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True)
+    proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr)
     process_info['proc'] = proc2
     for line in proc2.stdout:
         process_info['log'].append('[翻译] ' + line)
