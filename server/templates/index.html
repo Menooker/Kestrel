@@ -12,7 +12,7 @@
             padding: 0;
         }
         .container {
-            max-width: 420px;
+            max-width: 720px;
             margin: 40px auto;
             background: #fff;
             border-radius: 12px;
@@ -24,6 +24,13 @@
             color: #333;
             margin-bottom: 24px;
         }
+        .row {
+            display: flex;
+            gap: 16px;
+        }
+        .col {
+            flex: 1;
+        }
         form label {
             display: block;
             margin-bottom: 8px;
@@ -34,27 +41,29 @@
         form input[type="number"] {
             width: 100%;
             padding: 8px 10px;
-            margin-bottom: 18px;
+            margin-bottom: 12px;
             border: 1px solid #ccc;
             border-radius: 6px;
             font-size: 15px;
             box-sizing: border-box;
         }
-        form input[type="submit"] {
-            width: 100%;
+        .btn {
+            display: inline-block;
             background: #4f8cff;
             color: #fff;
             border: none;
             border-radius: 6px;
-            padding: 10px 0;
-            font-size: 16px;
+            padding: 10px 16px;
+            font-size: 15px;
             font-weight: bold;
             cursor: pointer;
             transition: background 0.2s;
+            text-align: center;
         }
-        form input[type="submit"]:hover {
-            background: #357ae8;
+        .btn.secondary {
+            background: #6c757d;
         }
+        .btn:hover { background: #357ae8; }
         .messages {
             margin-bottom: 18px;
             padding: 10px;
@@ -62,6 +71,25 @@
             border-radius: 6px;
             color: #2a5d9f;
             font-size: 15px;
+        }
+        .section {
+            padding: 14px;
+            border-radius: 8px;
+            background: #fcfdff;
+            margin-bottom: 18px;
+            border: 1px solid #f0f3f8;
+        }
+        #progress {
+            margin-top:12px;
+            background:#0f1720;
+            color:#dfeffb;
+            padding:12px;
+            border-radius:8px;
+            font-size:14px;
+            display:none;
+            white-space:pre-wrap;
+            max-height:360px;
+            overflow:auto;
         }
     </style>
 </head>
@@ -77,45 +105,104 @@
             </div>
           {% endif %}
         {% endwith %}
-        <form method="post">
-            <label for="video_path">视频路径</label>
-            <input type="text" name="video_path" id="video_path" required>
 
-            <label for="api_key">API Key</label>
-            <input type="text" name="api_key" id="api_key">
+        <div class="section">
+            <form id="process-form" method="post">
+                <label for="video_path">视频路径</label>
+                <input type="text" name="video_path" id="video_path" placeholder="例如：C:\Videos\myvideo.mp4" required>
 
-            <label for="batchsize">Batchsize</label>
-            <input type="number" name="batchsize" id="batchsize" value="50">
+                <div class="row">
+                    <div class="col">
+                        <label for="batchsize">Batchsize</label>
+                        <input type="number" name="batchsize" id="batchsize" value="50">
+                    </div>
+                </div>
 
-            <label for="hint">Hint</label>
-            <input type="text" name="hint" id="hint">
+                <label for="hint">Hint</label>
+                <input type="text" name="hint" id="hint" placeholder="翻译提示（可选）">
 
-            <input type="submit" value="开始处理">
-        </form>
-        <div id="progress" style="margin-top:24px; background:#222; color:#eee; padding:12px; border-radius:8px; font-size:14px; display:none; white-space:pre-wrap; max-height:300px; overflow:auto;"></div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn" type="submit">开始转录 & 翻译</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="section">
+            <h3 style="margin-top:0; margin-bottom:12px;">单独下载（you-get）</h3>
+            <form id="download-form" method="post">
+                <label for="download_url">视频/资源 URL</label>
+                <input type="text" name="download_url" id="download_url" placeholder="例如：https://www.youtube.com/watch?v=...">
+
+                <label for="download_filename">保存为（文件名，不带路径）</label>
+                <input type="text" name="download_filename" id="download_filename" placeholder="例如：myvideo.mp4">
+
+                <div style="display:flex; gap:8px;">
+                    <button class="btn" type="submit">开始下载</button>
+                    <button class="btn secondary" type="button" id="clear-log">清空日志</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="progress"></div>
     </div>
+
     <script>
-    document.querySelector('form').onsubmit = function(e) {
-        e.preventDefault();
+    // helper to start polling
+    function startPolling() {
         document.getElementById('progress').style.display = 'block';
+        pollProgress();
+    }
+    function pollProgress() {
+        fetch('/progress').then(r => r.json()).then(data => {
+            document.getElementById('progress').textContent = data.output || '';
+            if (data.running) {
+                setTimeout(pollProgress, 1000);
+            } else {
+                document.getElementById('progress').textContent += '\n任务已完成！';
+            }
+        }).catch(() => {
+            setTimeout(pollProgress, 2000);
+        });
+    }
+
+    // process form (transcribe + translate)
+    document.getElementById('process-form').onsubmit = function(e) {
+        e.preventDefault();
         document.getElementById('progress').textContent = '任务已启动，正在处理...';
+        startPolling();
         fetch('/start', {
             method: 'POST',
             body: new FormData(this)
-        }).then(() => {
-            pollProgress();
+        }).then(res => res.json()).then(data => {
+            if (data.error) {
+                document.getElementById('progress').textContent = data.error;
+            }
+        }).catch(err => {
+            document.getElementById('progress').textContent = '启动任务失败: ' + err;
         });
     };
-    function pollProgress() {
-        fetch('/progress').then(r => r.json()).then(data => {
-            document.getElementById('progress').textContent = data.output;
-            if (data.running) {
-                setTimeout(pollProgress, 1500);
-            } else {
-                document.getElementById('progress').textContent += '\\n任务已完成！';
+
+    // download form (you-get)
+    document.getElementById('download-form').onsubmit = function(e) {
+        e.preventDefault();
+        document.getElementById('progress').textContent = '下载任务已启动...';
+        startPolling();
+        fetch('/download', {
+            method: 'POST',
+            body: new FormData(this)
+        }).then(res => res.json()).then(data => {
+            if (data.error) {
+                document.getElementById('progress').textContent = data.error;
             }
+        }).catch(err => {
+            document.getElementById('progress').textContent = '启动下载失败: ' + err;
         });
-    }
+    };
+
+    document.getElementById('clear-log').onclick = function() {
+        fetch('/progress') // read once to avoid race, then clear locally
+            .then(() => { document.getElementById('progress').textContent = ''; });
+    };
     </script>
 </body>
 </html>

@@ -1,10 +1,9 @@
-
-
 import argparse
 from flask import Flask, render_template, request, jsonify
 import subprocess
 import os
 import threading
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--api-key', type=str, required=True, help='Google Gemini API Key')
@@ -20,6 +19,10 @@ process_info = {
     'step': None,
     'log': []
 }
+
+def sanitize_filename(name: str) -> str:
+    # keep letters, numbers, space, dot, underscore, hyphen; replace others with underscore
+    return re.sub(r'[^A-Za-z0-9 _\.\-]', '_', name).strip()
 
 def run_task(video_path, api_key, batchsize, hint, output_file):
     base_dir = os.path.dirname(video_path)
@@ -83,6 +86,59 @@ def start():
     thread = threading.Thread(target=run_task, args=(video_path, api_key, batchsize, hint, None))
     thread.start()
     return jsonify({'status': 'started'})
+
+@app.route('/download', methods=['POST'])
+def download():
+    # prevent starting a new job while another proc is active
+    if process_info.get('proc') is not None:
+        return jsonify({'error': '已有任务在运行，请稍后再试。'}), 400
+
+    url = request.form.get('download_url', '').strip()
+    filename = request.form.get('download_filename', '').strip()
+    if not url or not filename:
+        return jsonify({'error': '请提供 URL 和 文件名'}), 400
+
+    filename = sanitize_filename(filename)
+    dest_dir = r"C:\shared"
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+    except Exception as e:
+        return jsonify({'error': f'无法创建目录 {dest_dir}: {e}'}), 500
+
+    dest_path = os.path.join(dest_dir, filename)
+
+    # build you-get command using -O as requested
+    youget_cmd = ['you-get', '-O', dest_path, url]
+
+    # prepare env (include path env if provided)
+    envr = os.environ.copy()
+    envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
+
+    # clear previous log and set step
+    process_info['log'] = []
+    process_info['step'] = 'download'
+
+    def worker():
+        try:
+            process_info['proc'] = subprocess.Popen(youget_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1, env=envr, encoding='utf-8')
+            proc = process_info['proc']
+            process_info['log'].append(f"> {' '.join(youget_cmd)}\n")
+            for line in proc.stdout:
+                process_info['log'].append('[下载] ' + line)
+            proc.wait()
+            process_info['log'].append(f"\n=== you-get exited with code {proc.returncode} ===\n")
+            # 合并音频视频为mp4
+            if os.path.exists(dest_path+"[00].mp4") and os.path.exists(dest_path+"[01].mp4"):
+                subprocess.run(["ffmpeg", "-i", dest_path+"[00].mp4", "-i", dest_path+"[01].mp4", "-c:v", "copy", "-c:a", "aac", dest_path + ".mp4"], env=envr)
+        except Exception as e:
+            process_info['log'].append(f"\n*** 下载异常: {e} ***\n")
+        finally:
+            process_info['proc'] = None
+            process_info['step'] = None
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    return jsonify({'status': 'download_started'})
 
 @app.route('/progress')
 def progress():
