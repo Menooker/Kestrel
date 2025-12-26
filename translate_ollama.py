@@ -26,6 +26,7 @@ parser.add_argument('--batchsize', type=int, default=50)
 parser.add_argument('--in-lang', type=str, default="jp")
 parser.add_argument('--out-lang', type=str, default="zh-cn")
 parser.add_argument('--hint', type=str, default="")
+parser.add_argument('--model', type=str, default="gpt-oss:20b")
 
 args = parser.parse_args()
 
@@ -68,11 +69,12 @@ The input will be in JSON format like below:
 You only need to translate the contents. Keep the id unchanged in output.
 
 Do not miss any of the content. Strictly align the id number with the translated output and original input. 
-Do not output extract words other than the translated content.
+Do not output extra words other than the translated content.
 Use native terms and expressions of the target language.
 The input for you is a transcription of an audio. In some cases, it may be incorrect which messes up some words with similar pronunciation. You may need to infer the correct meaning by the context.
 
-如果出现谐音哏、双关语、文化背景等情况，请结合上下文在括号中进行补充说明
+如果出现谐音哏、双关语、文化背景等情况，请结合上下文在括号中进行补充说明.
+用户给出的“content”是从连续的对话中截取的，相邻的content可能可以组成一句连续的话。翻译时考虑语序。允许重新排列临近的句子保证翻译语序自然。
 {hint}
 The user will provide the context of the conversions. It is only for your reference to understand the context. You only need to translate the latest input.
 
@@ -127,7 +129,7 @@ for filename in files:
     resp = dict()
     while True:
       time.sleep(1)
-      response = client.chat('deepseek-r1:14b', messages=system_prompt + prompt_parts, options={'think': False}, format=schema)
+      response = client.chat(args.model, messages=system_prompt + prompt_parts, options={'think': False}, format=schema)
       data = response.message.content
       # prompt_parts.append({'role': 'assistant', 'content': data})
       # data = remove_think(data)
