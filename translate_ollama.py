@@ -75,6 +75,7 @@ The input for you is a transcription of an audio. In some cases, it may be incor
 
 如果出现谐音哏、双关语、文化背景等情况，请结合上下文在括号中进行补充说明.
 用户给出的“content”是从连续的对话中截取的，相邻的content可能可以组成一句连续的话。翻译时考虑语序。允许重新排列临近的句子保证翻译语序自然。
+给你的文字是从录音中听写下来的，可能会有听写错误，如果发现原文语义不正确，试着结合上下文找出原来意思并翻译，通过括号说明
 {hint}
 The user will provide the context of the conversions. It is only for your reference to understand the context. You only need to translate the latest input.
 

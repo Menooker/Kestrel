@@ -155,16 +155,22 @@
         pollProgress();
     }
     function pollProgress() {
-        fetch('/progress').then(r => r.json()).then(data => {
-            document.getElementById('progress').textContent = data.output || '';
-            if (data.running) {
-                setTimeout(pollProgress, 1000);
-            } else {
-                document.getElementById('progress').textContent += '\n任务已完成！';
-            }
-        }).catch(() => {
-            setTimeout(pollProgress, 2000);
-        });
+        fetch('/progress', { cache: 'no-store', credentials: 'same-origin' })
+            .then(r => {
+                if (!r.ok) throw new Error('network');
+                return r.json();
+            })
+            .then(data => {
+                document.getElementById('progress').textContent = data.output || '';
+                if (data.running) {
+                    setTimeout(pollProgress, 1000);
+                } else {
+                    document.getElementById('progress').textContent += '\n任务已完成！';
+                }
+            })
+            .catch(() => {
+                setTimeout(pollProgress, 2000);
+            });
     }
 
     // process form (transcribe + translate)
