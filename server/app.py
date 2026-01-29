@@ -1,9 +1,10 @@
 import argparse
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, make_response
 import subprocess
 import os
 import threading
 import re
+import unicodedata
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--api-key', type=str, required=True, help='Google Gemini API Key')
@@ -21,8 +22,26 @@ process_info = {
 }
 
 def sanitize_filename(name: str) -> str:
-    # keep letters, numbers, space, dot, underscore, hyphen; replace others with underscore
-    return re.sub(r'[^A-Za-z0-9 _\.\-]', '_', name).strip()
+    """
+    Allow Unicode characters (including Chinese). Only remove/replace characters
+    that are illegal on Windows file systems and control chars. Also strip trailing
+    spaces and dots.
+    """
+    if not name:
+        return "file"
+    # Normalize to composed form
+    name = unicodedata.normalize('NFKC', name)
+    # Replace characters illegal on Windows and control chars with underscore
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
+    # Collapse multiple underscores
+    name = re.sub(r'_+', '_', name)
+    # Strip trailing spaces and dots (invalid on Windows filenames)
+    name = name.rstrip(' .')
+    # Fallback if empty after cleaning
+    if not name:
+        return "file"
+
+    return name
 
 def run_task(video_path, api_key, batchsize, hint, output_file):
     base_dir = os.path.dirname(video_path)
@@ -140,13 +159,76 @@ def download():
     thread.start()
     return jsonify({'status': 'download_started'})
 
+@app.route('/translate', methods=['POST'])
+def translate_only():
+    # prevent starting a new job while another proc is active
+    if process_info.get('proc') is not None:
+        return jsonify({'error': '已有任务在运行，请稍后再试。'}), 400
+
+    video_path = request.form.get('video_path', '').strip()
+    api_key = request.form.get('api_key', '').strip()
+    batchsize = request.form.get('batchsize', '50').strip()
+    hint = request.form.get('hint', '').strip()
+
+    if not video_path:
+        return jsonify({'error': '未提供视频路径'}), 400
+
+    base_dir = os.path.dirname(video_path)
+    filename = os.path.splitext(os.path.basename(video_path))[0]
+
+    # prepare env for translate (reuse proxy handling)
+    envr = os.environ.copy()
+    envr["HTTP_PROXY"] = args.proxy
+    envr["HTTPS_PROXY"] = args.proxy
+    envr['http_proxy'] = args.proxy
+    envr['https_proxy'] = args.proxy
+    # make sure PATH from args.path_env is included if provided
+    envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
+
+    # clear previous log and set step
+    process_info['log'] = []
+    process_info['step'] = 'translate'
+
+    def worker():
+        try:
+            key_to_use = api_key if api_key else args.api_key
+            cmd = [
+                'python', 'translate.py',
+                '--base', base_dir,
+                '--key', key_to_use,
+                '--batchsize', str(batchsize),
+                '-l', filename,
+                '--hint', hint
+            ]
+            process_info['proc'] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1, env=envr)
+            proc = process_info['proc']
+            process_info['log'].append(f"> {' '.join(cmd)}\n")
+            for line in proc.stdout:
+                process_info['log'].append('[翻译] ' + line)
+            proc.wait()
+            process_info['log'].append(f"\n=== translate.py exited with code {proc.returncode} ===\n")
+        except Exception as e:
+            process_info['log'].append(f"\n*** 翻译异常: {e} ***\n")
+        finally:
+            process_info['proc'] = None
+            process_info['step'] = None
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    return jsonify({'status': 'translate_started'})
+
 @app.route('/progress')
 def progress():
     log = process_info.get('log', [])
     content = ''.join(log)
-    running = process_info['proc'] is not None or process_info['step'] is not None
+    running = process_info['proc'] is not None or process_info.get('step') is not None
     step = process_info.get('step')
-    return jsonify({'output': content, 'running': running, 'step': step})
+    resp = make_response(jsonify({'output': content, 'running': running, 'step': step}))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return resp
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0')

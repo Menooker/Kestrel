@@ -125,6 +125,7 @@
 
                 <div style="display:flex; gap:8px;">
                     <button class="btn" type="submit">开始转录 & 翻译</button>
+                    <button class="btn" type="button" id="translate-only">单独翻译</button>
                 </div>
             </form>
         </div>
@@ -204,6 +205,24 @@
             }
         }).catch(err => {
             document.getElementById('progress').textContent = '启动下载失败: ' + err;
+        });
+    };
+
+    // 单独翻译按钮处理
+    document.getElementById('translate-only').onclick = function(e) {
+        e.preventDefault();
+        const form = document.getElementById('process-form');
+        document.getElementById('progress').textContent = '开始翻译...';
+        startPolling();
+        fetch('/translate', {
+            method: 'POST',
+            body: new FormData(form)
+        }).then(res => res.json()).then(data => {
+            if (data.error) {
+                document.getElementById('progress').textContent = data.error;
+            }
+        }).catch(err => {
+            document.getElementById('progress').textContent = '启动翻译失败: ' + err;
         });
     };
 
