@@ -4,8 +4,9 @@ At the command line, only need to run once to install the package via pip:
 $ pip install google-generativeai
 """
 
-from copy import Error
-import google.generativeai as genai
+from google import genai
+from google.genai import chats
+from google.genai import types
 import sys
 import tqdm
 import time
@@ -39,35 +40,6 @@ hint = args.hint
 language_map = {"zh-cn" : "chinese", "jp" : "japanese", "ja" : "japanese", "en" : "english"}
 target_language = language_map.get(out_lang, out_lang)
 
-genai.configure(api_key=args.key,  transport="rest")
-
-# Set up the model
-generation_config = {
-  "temperature": 1,
-  "top_p": 0.95,
-  "top_k": 0,
-  "max_output_tokens": 1048576,
-}
-
-safety_settings = [
-  {
-    "category": "HARM_CATEGORY_HARASSMENT",
-    "threshold": "BLOCK_NONE"
-  },
-  {
-    "category": "HARM_CATEGORY_HATE_SPEECH",
-    "threshold": "BLOCK_NONE"
-  },
-  {
-    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-    "threshold": "BLOCK_NONE"
-  },
-  {
-    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-    "threshold": "BLOCK_NONE"
-  },
-]
-
 system_instruction = f'''Translate a subtitle file.
 You only need to translate the contents of the file.
 Translate to {target_language}. Output "ENDENDEND" when you reach the end of the input
@@ -84,11 +56,38 @@ For example, don't output "[[124::我的 早饭 是 饭团". Instead, output "[[
 {hint}
 '''
 
-model = genai.GenerativeModel(model_name="gemini-3-flash-preview",
-                              generation_config=generation_config,
-                              system_instruction=system_instruction,
-                              safety_settings=safety_settings)
+def generation_config():
+    return types.GenerateContentConfig(
+        system_instruction = system_instruction,
+        temperature = 1,
+        top_p = 0.95,
+        top_k = 0,
+        max_output_tokens = 1048576,
+        safety_settings = [
+            types.SafetySetting(
+                category = "HARM_CATEGORY_HARASSMENT",
+                threshold = "BLOCK_NONE"
+            ),
+            types.SafetySetting(
+                category = "HARM_CATEGORY_HATE_SPEECH",
+                threshold = "BLOCK_NONE"
+            ),
+            types.SafetySetting(
+                category = "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                threshold = "BLOCK_NONE"
+            ),
+            types.SafetySetting(
+                category = "HARM_CATEGORY_DANGEROUS_CONTENT",
+                threshold = "BLOCK_NONE"
+            ),
+            ]
+        )
 
+client = genai.Client(api_key=args.key)
+chat = client.chats.create(
+            model="gemini-3-flash-preview",
+            config=generation_config()
+        )
 print(base, files)
 
 for filename in files:
@@ -134,7 +133,10 @@ for filename in files:
     while not done:
       for retries in range(6):
         try:
-          response = model.generate_content(prompt_parts, stream=False)
+          response = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=prompt_parts
+          )
           time.sleep(15)
           break
         except Exception as e:
@@ -150,8 +152,8 @@ for filename in files:
             prompt_parts.pop()
             content_slice, promp = make_promp()
             print("Retry with BS=", batchsize)
-      for part in response:
-        outtxt+=part.text
+      if True:
+        outtxt+=response.text
         if "ENDENDEND" in outtxt or outtxt.count("[[") >= len(content_slice):
           done = True
           outtxt = outtxt.replace("ENDENDEND", "")
