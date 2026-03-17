@@ -85,7 +85,7 @@ def generation_config():
 
 client = genai.Client(api_key=args.key)
 chat = client.chats.create(
-            model="gemini-3-flash-preview",
+            model="gemini-3-flash-lite-preview",
             config=generation_config()
         )
 print(base, files)
@@ -125,7 +125,7 @@ for filename in files:
       promp = [f"[[{c[0]}::{c[1]}" for c in content_slice]
       # print("range:", content_slice[0][0], content_slice[-1][0])
       # print(promp)
-      prompt_parts.append({"role":"user", "parts":"\n".join(promp)})
+      prompt_parts.append(types.Content(role="user", parts=[types.Part.from_text(text="\n".join(promp))]))
       return content_slice, promp
     content_slice, promp = make_promp()
     done = False
@@ -160,7 +160,7 @@ for filename in files:
       prompt_parts.append(response.candidates[0].content)
       if done:
         break
-      prompt_parts.append({"role":"user", "parts":"continue"})
+      prompt_parts.append(types.Content(role="user", parts=[types.Part.from_text(text="continue")]))
     bar.update(len(promp))
     # print(outtxt)
     outstr = outtxt.split("[[")

@@ -5,7 +5,6 @@ $ pip install google-generativeai
 """
 
 
-import ollama
 import tqdm
 import time
 import argparse
@@ -27,6 +26,8 @@ parser.add_argument('--in-lang', type=str, default="jp")
 parser.add_argument('--out-lang', type=str, default="zh-cn")
 parser.add_argument('--hint', type=str, default="")
 parser.add_argument('--model', type=str, default="gpt-oss:20b")
+# choice between openai or ollama
+parser.add_argument('--api', type=str, default="ollama")
 
 args = parser.parse_args()
 
@@ -41,7 +42,31 @@ language_map = {"zh-cn" : "chinese", "jp" : "japanese", "ja" : "japanese", "en" 
 target_language = language_map.get(out_lang, out_lang)
 source_language = language_map.get(in_lang, in_lang)
 
-client = ollama.Client(host = "http://kun:11434")
+if args.api == "ollama":
+  from ollama import ollama
+  client = ollama.Client(host = "http://kun:11434")
+  def chat(messages):
+    response = client.chat(args.model, messages=messages, options={'think': False}, format=schema)
+    return response.message.content
+elif args.api == "openai":
+  from openai import OpenAI
+
+  client = OpenAI(
+      base_url='http://kun:8080/v1/',
+      api_key='ollama',  # required but ignored
+  )
+  def chat(messages):
+    print("Request messages:", messages)
+    completion = client.chat.completions.create(
+        model=args.model,
+        messages=messages,
+        extra_body = {"enable_thinking": False},
+        # Pass the Pydantic model to the response_format
+        response_format={"type": "json_object", "schema": schema} 
+    )
+    return completion.choices[0].message.content
+else:
+  raise ValueError("Unsupported API. Use --api to specify either 'ollama' or 'openai'.")
 
 class TranslatedMessage(BaseModel):
   id: int
@@ -75,11 +100,11 @@ The input for you is a transcription of an audio. In some cases, it may be incor
 
 如果出现谐音哏、双关语、文化背景等情况，请结合上下文在括号中进行补充说明.
 用户给出的“content”是从连续的对话中截取的，相邻的content可能可以组成一句连续的话。翻译时考虑语序。允许重新排列临近的句子保证翻译语序自然。
-给你的文字是从录音中听写下来的，可能会有听写错误，如果发现原文语义不正确，试着结合上下文找出原来意思并翻译，通过括号说明
+给你的文字是从录音中听写下来的，可能会有听写错误，如果发现原文语义不正确，试着结合上下文找出原来意思并翻译出来。
 {hint}
 The user will provide the context of the conversions. It is only for your reference to understand the context. You only need to translate the latest input.
 
-Translate from {source_language} to {target_language}.
+Translate from {source_language} to {target_language}. Note that the output json schema is different from the input one.
 '''
 
 print(base, files)
@@ -130,8 +155,7 @@ for filename in files:
     resp = dict()
     while True:
       time.sleep(1)
-      response = client.chat(args.model, messages=system_prompt + prompt_parts, options={'think': False}, format=schema)
-      data = response.message.content
+      data = chat(system_prompt + prompt_parts)
       # prompt_parts.append({'role': 'assistant', 'content': data})
       # data = remove_think(data)
       try:
