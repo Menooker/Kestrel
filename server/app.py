@@ -50,7 +50,7 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
     process_info['log'] = []
     # Step 1: transcribe_subsai.py，传递参数
     cmd1 = [
-        'python', 'transcribe_subsai.py',
+        'python', '-u', 'transcribe_subsai.py',
         '--base', base_dir,
         '--files', filename,
         '--video_ext', video_ext
@@ -58,7 +58,7 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
     process_info['step'] = 'transcribe'
     envr = os.environ.copy()
     envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
-    proc1 = subprocess.Popen(cmd1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr)
+    proc1 = subprocess.Popen(cmd1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr, encoding='utf-8')
     process_info['proc'] = proc1
     for line in proc1.stdout:
         process_info['log'].append('[转录] ' + line)
@@ -72,7 +72,7 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
     envr['https_proxy'] = args.proxy
     # Step 2: translate.py
     cmd2 = [
-        'python', 'translate.py',
+        'python', '-u', 'translate.py',
         '--base', base_dir,
         '--key', api_key,
         '--batchsize', str(batchsize),
@@ -80,7 +80,7 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
         '--hint', hint
     ]
     process_info['step'] = 'translate'
-    proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr)
+    proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr, encoding='utf-8')
     process_info['proc'] = proc2
     for line in proc2.stdout:
         process_info['log'].append('[翻译] ' + line)
@@ -193,7 +193,7 @@ def translate_only():
         try:
             key_to_use = api_key if api_key else args.api_key
             cmd = [
-                'python', 'translate.py',
+                'python', '-u', 'translate.py',
                 '--base', base_dir,
                 '--key', key_to_use,
                 '--batchsize', str(batchsize),

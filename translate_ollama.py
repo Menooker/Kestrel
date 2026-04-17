@@ -10,7 +10,7 @@ import time
 import argparse
 import os
 import json
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 # old_init = requests.Session.request
 # def newrequest()
@@ -28,6 +28,9 @@ parser.add_argument('--hint', type=str, default="")
 parser.add_argument('--model', type=str, default="gpt-oss:20b")
 # choice between openai or ollama
 parser.add_argument('--api', type=str, default="ollama")
+parser.add_argument('--context', type=str, default="")
+parser.add_argument('--window', type=int, default=3, help="number of previous translations to include in the prompt as context")
+
 
 args = parser.parse_args()
 
@@ -37,16 +40,17 @@ resume = args.resume
 in_lang = args.in_lang
 out_lang = args.out_lang
 hint = args.hint
+context_window = args.window
 
 language_map = {"zh-cn" : "chinese", "jp" : "japanese", "ja" : "japanese", "en" : "english"}
 target_language = language_map.get(out_lang, out_lang)
 source_language = language_map.get(in_lang, in_lang)
 
 if args.api == "ollama":
-  from ollama import ollama
+  import ollama
   client = ollama.Client(host = "http://kun:11434")
   def chat(messages):
-    response = client.chat(args.model, messages=messages, options={'think': False}, format=schema)
+    response = client.chat(args.model, messages=messages, options={'think': False}, format=schema, think=False)
     return response.message.content
 elif args.api == "openai":
   from openai import OpenAI
@@ -56,7 +60,6 @@ elif args.api == "openai":
       api_key='ollama',  # required but ignored
   )
   def chat(messages):
-    print("Request messages:", messages)
     completion = client.chat.completions.create(
         model=args.model,
         messages=messages,
@@ -70,18 +73,25 @@ else:
 
 class TranslatedMessage(BaseModel):
   id: int
-  translated: str
+  content: str
 
-class TranslatedResponse(BaseModel):
-  data: list[TranslatedMessage]
+# class TranslatedResponse(BaseModel):
+#   data: list[TranslatedMessage]
 
-schema = TranslatedResponse.model_json_schema()
+schema = TypeAdapter(list[TranslatedMessage]).json_schema()
 
 def remove_think(data: str) -> str:
   think_tag = "</think>"
   if think_tag in data:
     data = data[data.find(think_tag) + len(think_tag):]
   return data.strip()
+
+if args.context:
+  with open(args.context, encoding="utf-8") as f:
+    custom_context = "关于内容的额外信息：\n" + f.read()
+else:
+  custom_context = ""
+print("Custom context:", custom_context[:25], "..." if len(custom_context) > 25 else "")
 
 system_instruction = f'''Translate a subtitle. You only need to translate the contents.
 Translate to {target_language}.
@@ -103,6 +113,7 @@ The input for you is a transcription of an audio. In some cases, it may be incor
 给你的文字是从录音中听写下来的，可能会有听写错误，如果发现原文语义不正确，试着结合上下文找出原来意思并翻译出来。
 {hint}
 The user will provide the context of the conversions. It is only for your reference to understand the context. You only need to translate the latest input.
+{custom_context}
 
 Translate from {source_language} to {target_language}. Note that the output json schema is different from the input one.
 '''
@@ -139,7 +150,7 @@ for filename in files:
   # for start in range(resume, len(contents), batchsize):
   start = resume
   while start < len(contents):
-    history = history[-3:]
+    history = history[-context_window:]
     prompt_parts = []
     def make_promp():
       content_slice = contents[start:start+batchsize]
@@ -154,15 +165,16 @@ for filename in files:
     content_slice, promp = make_promp()
     resp = dict()
     while True:
-      time.sleep(1)
+      # time.sleep(1)
       data = chat(system_prompt + prompt_parts)
+      data = data.replace('"content": “', '"content": "')
       # prompt_parts.append({'role': 'assistant', 'content': data})
       # data = remove_think(data)
       try:
-        raw: TranslatedResponse = TranslatedResponse.model_validate_json(data)
+        raw: list[TranslatedMessage] = TypeAdapter(list[TranslatedMessage]).validate_json(data)
         # if len(resp.data) != len(promp):
-        for m in raw.data:
-          resp[m.id] = m.translated
+        for m in raw:
+          resp[m.id] = m.content
         missing = []
         for r in promp:
           if r["id"] not in resp:

@@ -178,14 +178,18 @@
     document.getElementById('process-form').onsubmit = function(e) {
         e.preventDefault();
         document.getElementById('progress').textContent = '任务已启动，正在处理...';
-        startPolling();
         fetch('/start', {
             method: 'POST',
             body: new FormData(this)
-        }).then(res => res.json()).then(data => {
+        }).then(res => {
+            if (!res.ok) throw new Error('network');
+            return res.json();
+        }).then(data => {
             if (data.error) {
                 document.getElementById('progress').textContent = data.error;
+                return;
             }
+            startPolling();
         }).catch(err => {
             document.getElementById('progress').textContent = '启动任务失败: ' + err;
         });
@@ -195,14 +199,18 @@
     document.getElementById('download-form').onsubmit = function(e) {
         e.preventDefault();
         document.getElementById('progress').textContent = '下载任务已启动...';
-        startPolling();
         fetch('/download', {
             method: 'POST',
             body: new FormData(this)
-        }).then(res => res.json()).then(data => {
+        }).then(res => {
+            if (!res.ok) throw new Error('network');
+            return res.json();
+        }).then(data => {
             if (data.error) {
                 document.getElementById('progress').textContent = data.error;
+                return;
             }
+            startPolling();
         }).catch(err => {
             document.getElementById('progress').textContent = '启动下载失败: ' + err;
         });
@@ -213,14 +221,18 @@
         e.preventDefault();
         const form = document.getElementById('process-form');
         document.getElementById('progress').textContent = '开始翻译...';
-        startPolling();
         fetch('/translate', {
             method: 'POST',
             body: new FormData(form)
-        }).then(res => res.json()).then(data => {
+        }).then(res => {
+            if (!res.ok) throw new Error('network');
+            return res.json();
+        }).then(data => {
             if (data.error) {
                 document.getElementById('progress').textContent = data.error;
+                return;
             }
+            startPolling();
         }).catch(err => {
             document.getElementById('progress').textContent = '启动翻译失败: ' + err;
         });
