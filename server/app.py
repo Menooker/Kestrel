@@ -58,6 +58,7 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
     process_info['step'] = 'transcribe'
     envr = os.environ.copy()
     envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
+    envr["HF_HUB_OFFLINE"] = "1"  # 禁止 transformers 从 Hugging Face Hub 下载模型
     proc1 = subprocess.Popen(cmd1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr, encoding='utf-8')
     process_info['proc'] = proc1
     for line in proc1.stdout:
