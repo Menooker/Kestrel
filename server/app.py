@@ -4,22 +4,58 @@ import subprocess
 import os
 import threading
 import re
+import signal
+import time
 import unicodedata
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
+
+
+def _set_python_encoding_env(envr):
+    """Inject Python UTF-8 encoding variables into an env dict."""
+    envr["PYTHONIOENCODING"] = "utf-8"
+    envr["PYTHONUTF8"] = "1"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--api-key', type=str, required=True, help='Google Gemini API Key')
 parser.add_argument('--path-env', type=str, required=True, help='Path enviroment variable')
+parser.add_argument('--llama-server', type=str, required=True, help='Path to llama-server executable')
+parser.add_argument('--model', type=str, required=True, help='Path to model GGUF file')
 parser.add_argument('--proxy', type=str, default="http://127.0.0.1:8010", help='Proxy for API requests')
 args, unknown = parser.parse_known_args()
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
+LLAMA_SERVER_CMD = [
+    args.llama_server,
+    "-m", args.model,
+    "-c", "12800",
+    "-fa", "on",
+    "-t", "20",
+    "--jinja",
+    "-ctk", "q8_0",
+    "-ctv", "q8_0",
+    "--parallel", "1",
+    "--host", "0.0.0.0",
+    "--fit", "on",
+    "--fit-target", "256",
+    "--no-mmap",
+    "-cram", "0",
+    "--spec-type", "draft-mtp",
+    "--spec-draft-n-max", "3",
+    "--chat-template-kwargs", "{\"enable_thinking\":false}",
+]
+LLAMA_BASE_URL = "http://127.0.0.1:8080/v1/"
+
 process_info = {
     'proc': None,
     'step': None,
     'log': []
 }
+
+def is_working():
+    return process_info['proc'] is not None or process_info.get('step') is not None
 
 def sanitize_filename(name: str) -> str:
     """
@@ -43,6 +79,51 @@ def sanitize_filename(name: str) -> str:
 
     return name
 
+def start_llama_server():
+    creationflags = 0
+    if os.name == 'nt':
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+    return subprocess.Popen(
+        LLAMA_SERVER_CMD,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+    )
+
+def wait_for_llama_server(proc, timeout=120):
+    deadline = time.time() + timeout
+    last_error = None
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"llama-server exited early with code {proc.returncode}")
+        try:
+            with urlopen(LLAMA_BASE_URL + "models", timeout=2):
+                return
+        except (URLError, HTTPError, OSError) as e:
+            last_error = e
+            time.sleep(1)
+    raise RuntimeError(f"llama-server not ready: {last_error}")
+
+def stop_llama_server(proc):
+    if proc is None:
+        print("No llama-server process to stop.")
+        return
+    try:
+        print("Sent terminate signal to llama-server.")
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        print("llama-server did not terminate in time, killing...")
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    print("tried kill")
+    
+
 def run_task(video_path, api_key, batchsize, hint, output_file):
     base_dir = os.path.dirname(video_path)
     filename = os.path.splitext(os.path.basename(video_path))[0]
@@ -58,6 +139,7 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
     process_info['step'] = 'transcribe'
     envr = os.environ.copy()
     envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
+    _set_python_encoding_env(envr)
     envr["HF_HUB_OFFLINE"] = "1"  # 禁止 transformers 从 Hugging Face Hub 下载模型
     proc1 = subprocess.Popen(cmd1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr, encoding='utf-8')
     process_info['proc'] = proc1
@@ -65,29 +147,40 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
         process_info['log'].append('[转录] ' + line)
     proc1.wait()
     process_info['proc'] = None
-    api_key = api_key if api_key else args.api_key
+
     envr = os.environ.copy()
     envr["HTTP_PROXY"] = args.proxy
     envr["HTTPS_PROXY"] = args.proxy
-    envr['http_proxy'] = args.proxy
-    envr['https_proxy'] = args.proxy
-    # Step 2: translate.py
-    cmd2 = [
-        'python', '-u', 'translate.py',
-        '--base', base_dir,
-        '--key', api_key,
-        '--batchsize', str(batchsize),
-        '-l', filename,
-        '--hint', hint
-    ]
+    envr["http_proxy"] = args.proxy
+    envr["https_proxy"] = args.proxy
+    _set_python_encoding_env(envr)
+    llama_proc = start_llama_server()
     process_info['step'] = 'translate'
-    proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, env=envr, encoding='utf-8')
-    process_info['proc'] = proc2
-    for line in proc2.stdout:
-        process_info['log'].append('[翻译] ' + line)
-    proc2.wait()
-    process_info['proc'] = None
-    process_info['step'] = None
+    try:
+        wait_for_llama_server(llama_proc)
+        cmd2 = [
+            'python', '-u', 'translate_ollama.py',
+            '--base', base_dir,
+            '--api', 'openai',
+            '--base-url', LLAMA_BASE_URL,
+            '--window', '15',
+            '--batchsize', str(batchsize),
+            '-l', filename,
+            '--hint', hint
+        ]
+        if api_key:
+            cmd2 += ['--context', api_key]
+        proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True,
+                                 env=envr, encoding='utf-8')
+        process_info['proc'] = proc2
+        for line in proc2.stdout:
+            process_info['log'].append('[翻译] ' + line)
+        proc2.wait()
+        process_info['proc'] = None
+    finally:
+        stop_llama_server(llama_proc)
+        process_info['step'] = None
 
 @app.route('/', methods=['GET'])
 def index():
@@ -95,12 +188,13 @@ def index():
 
 @app.route('/start', methods=['POST'])
 def start():
+    if is_working():
+        return jsonify({'error': '已有任务在运行，请稍后再试。'}), 400
     video_path = request.form['video_path']
     api_key = request.form['api_key']
     batchsize = request.form['batchsize']
     hint = request.form['hint']
-    filename = os.path.splitext(os.path.basename(video_path))[0]
-    process_info['step'] = None
+    process_info['step'] = 'starting'
     process_info['log'] = []
 
     thread = threading.Thread(target=run_task, args=(video_path, api_key, batchsize, hint, None))
@@ -109,8 +203,7 @@ def start():
 
 @app.route('/download', methods=['POST'])
 def download():
-    # prevent starting a new job while another proc is active
-    if process_info.get('proc') is not None:
+    if is_working():
         return jsonify({'error': '已有任务在运行，请稍后再试。'}), 400
 
     url = request.form.get('download_url', '').strip()
@@ -133,6 +226,7 @@ def download():
     # prepare env (include path env if provided)
     envr = os.environ.copy()
     envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
+    _set_python_encoding_env(envr)
 
     # clear previous log and set step
     process_info['log'] = []
@@ -140,7 +234,9 @@ def download():
 
     def worker():
         try:
-            process_info['proc'] = subprocess.Popen(youget_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1, env=envr, encoding='utf-8')
+            process_info['proc'] = subprocess.Popen(youget_cmd, stdout=subprocess.PIPE,
+                                                    stderr=subprocess.STDOUT, universal_newlines=True,
+                                                    bufsize=1, env=envr, encoding='utf-8')
             proc = process_info['proc']
             process_info['log'].append(f"> {' '.join(youget_cmd)}\n")
             for line in proc.stdout:
@@ -149,7 +245,8 @@ def download():
             process_info['log'].append(f"\n=== you-get exited with code {proc.returncode} ===\n")
             # 合并音频视频为mp4
             if os.path.exists(dest_path+"[00].mp4") and os.path.exists(dest_path+"[01].mp4"):
-                subprocess.run(["ffmpeg", "-i", dest_path+"[00].mp4", "-i", dest_path+"[01].mp4", "-c:v", "copy", "-c:a", "aac", dest_path + ".mp4"], env=envr)
+                subprocess.run(["ffmpeg", "-i", dest_path+"[00].mp4", "-i", dest_path+"[01].mp4", "-c:v", "copy", "-c:a", "aac", dest_path + ".mp4"],
+                               env=envr, encoding='utf-8')
         except Exception as e:
             process_info['log'].append(f"\n*** 下载异常: {e} ***\n")
         finally:
@@ -181,38 +278,46 @@ def translate_only():
     envr = os.environ.copy()
     envr["HTTP_PROXY"] = args.proxy
     envr["HTTPS_PROXY"] = args.proxy
-    envr['http_proxy'] = args.proxy
-    envr['https_proxy'] = args.proxy
+    envr["http_proxy"] = args.proxy
+    envr["https_proxy"] = args.proxy
     # make sure PATH from args.path_env is included if provided
     envr["PATH"] = args.path_env + os.pathsep + envr.get("PATH", "")
-
+    _set_python_encoding_env(envr)
     # clear previous log and set step
-    process_info['log'] = []
+    process_info['step'] = 'starting'
     process_info['step'] = 'translate'
 
     def worker():
+        llama_proc = None
         try:
-            key_to_use = api_key if api_key else args.api_key
             cmd = [
-                'python', '-u', 'translate.py',
+                'python', '-u', 'translate_ollama.py',
                 '--base', base_dir,
-                '--key', key_to_use,
+                '--api', 'openai',
+                '--window', '15',
+                '--base-url', LLAMA_BASE_URL,
                 '--batchsize', str(batchsize),
                 '-l', filename,
                 '--hint', hint
             ]
-            process_info['proc'] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1, env=envr)
+            if api_key:
+                cmd += ['--context', api_key]
+            llama_proc = start_llama_server()
+            wait_for_llama_server(llama_proc)
+            process_info['proc'] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                                    universal_newlines=True, bufsize=1, env=envr, encoding='utf-8')
             proc = process_info['proc']
             process_info['log'].append(f"> {' '.join(cmd)}\n")
             for line in proc.stdout:
                 process_info['log'].append('[翻译] ' + line)
             proc.wait()
-            process_info['log'].append(f"\n=== translate.py exited with code {proc.returncode} ===\n")
+            process_info['log'].append(f"\n=== translate_ollama.py exited with code {proc.returncode} ===\n")
         except Exception as e:
             process_info['log'].append(f"\n*** 翻译异常: {e} ***\n")
         finally:
             process_info['proc'] = None
             process_info['step'] = None
+            stop_llama_server(llama_proc)
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()

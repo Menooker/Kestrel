@@ -28,6 +28,8 @@ parser.add_argument('--hint', type=str, default="")
 parser.add_argument('--model', type=str, default="gpt-oss:20b")
 # choice between openai or ollama
 parser.add_argument('--api', type=str, default="ollama")
+parser.add_argument('--base-url', type=str, default="http://127.0.0.1:8080/v1/",
+                    help='OpenAI-compatible API base URL')
 parser.add_argument('--context', type=str, default="")
 parser.add_argument('--window', type=int, default=3, help="number of previous translations to include in the prompt as context")
 
@@ -56,7 +58,7 @@ elif args.api == "openai":
   from openai import OpenAI
 
   client = OpenAI(
-      base_url='http://kun:8080/v1/',
+      base_url=args.base_url,
       api_key='ollama',  # required but ignored
   )
   def chat(messages):
