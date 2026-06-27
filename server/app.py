@@ -17,7 +17,6 @@ def _set_python_encoding_env(envr):
     envr["PYTHONUTF8"] = "1"
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--api-key', type=str, required=True, help='Google Gemini API Key')
 parser.add_argument('--path-env', type=str, required=True, help='Path enviroment variable')
 parser.add_argument('--llama-server', type=str, required=True, help='Path to llama-server executable')
 parser.add_argument('--model', type=str, required=True, help='Path to model GGUF file')
@@ -124,7 +123,7 @@ def stop_llama_server(proc):
     print("tried kill")
     
 
-def run_task(video_path, api_key, batchsize, hint, output_file):
+def run_task(video_path, context_file, batchsize, hint, output_file):
     base_dir = os.path.dirname(video_path)
     filename = os.path.splitext(os.path.basename(video_path))[0]
     video_ext = os.path.splitext(video_path)[1][1:] if '.' in os.path.basename(video_path) else 'mp4'
@@ -168,8 +167,8 @@ def run_task(video_path, api_key, batchsize, hint, output_file):
             '-l', filename,
             '--hint', hint
         ]
-        if api_key:
-            cmd2 += ['--context', api_key]
+        if context_file:
+            cmd2 += ['--context', context_file]
         proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True,
                                  env=envr, encoding='utf-8')
@@ -191,13 +190,13 @@ def start():
     if is_working():
         return jsonify({'error': '已有任务在运行，请稍后再试。'}), 400
     video_path = request.form['video_path']
-    api_key = request.form['api_key']
+    context_file = request.form.get("context_file", "").strip()
     batchsize = request.form['batchsize']
     hint = request.form['hint']
     process_info['step'] = 'starting'
     process_info['log'] = []
 
-    thread = threading.Thread(target=run_task, args=(video_path, api_key, batchsize, hint, None))
+    thread = threading.Thread(target=run_task, args=(video_path, context_file, batchsize, hint, None))
     thread.start()
     return jsonify({'status': 'started'})
 
@@ -264,7 +263,7 @@ def translate_only():
         return jsonify({'error': '已有任务在运行，请稍后再试。'}), 400
 
     video_path = request.form.get('video_path', '').strip()
-    api_key = request.form.get('api_key', '').strip()
+    context_file = request.form.get("context_file", "").strip()
     batchsize = request.form.get('batchsize', '50').strip()
     hint = request.form.get('hint', '').strip()
 
@@ -300,8 +299,8 @@ def translate_only():
                 '-l', filename,
                 '--hint', hint
             ]
-            if api_key:
-                cmd += ['--context', api_key]
+            if context_file:
+                cmd += ['--context', context_file]
             llama_proc = start_llama_server()
             wait_for_llama_server(llama_proc)
             process_info['proc'] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
