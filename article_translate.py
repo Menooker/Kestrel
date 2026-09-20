@@ -251,6 +251,7 @@ def translate(chat_fn, out_lang, hint, custom_context, base, resume, outfile, ba
         messages.append({"role": "user", "content": user_msg})
 
         cleaned, reasoning = chat_fn(messages)
+        bar.set_postfix_str(f"In {_tokens[0]/1000:.1f}k,cached {_tokens[1]/1000:.1f}k,Out {_tokens[2]/1000:.1f}k")
         outfile.write(cleaned)
         if cleaned and cleaned[-1] != "\n":
             outfile.write("\n")
@@ -339,9 +340,9 @@ def main():
     parser.add_argument("--hint", type=str, default="", help="Additional context / hint text")
     parser.add_argument("--context", type=str, default="", help="Path to a context file (injected as extra info)")
     parser.add_argument("--resume", type=int, default=0, help="Resume from line N")
-    parser.add_argument("--batch", type=int, default=70, help="Batch size in lines per request")
+    parser.add_argument("--batch", type=int, default=5, help="Batch size in lines per request")
     parser.add_argument(
-        "--num-history", dest="num_history", type=int, default=8,
+        "--num-history", dest="num_history", type=int, default=4,
         help="Max user inputs kept in history before triggering note compression",
     )
     parser.add_argument("--note-file", type=str, default="", help="The note file path to save translation notes (optional)")
