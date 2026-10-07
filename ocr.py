@@ -6,6 +6,7 @@ Usage examples:
   python ocr.py --base /path/to/images --out output.txt --api openai --base-url https://api.openai.com/v1 --key sk-xxx
   python ocr.py --base /path/to/images --out output.txt --resume 5
   python ocr.py --base /path/to/images --out output.txt --no-rotate
+  python ocr.py --base /path/to/images --out output.txt --hint "This is a Japanese novel"
 """
 
 import time
@@ -111,7 +112,7 @@ def prepare_image(src, rotate):
     return buf.read()
 
 
-def do_ocr(chat_fn, rotate, base, resume, outfile):
+def do_ocr(chat_fn, rotate, base, resume, outfile, hint=""):
     """Process JPG/PNG files through the vision model sequentially."""
     files = sorted(
         f for f in os.listdir(base)
@@ -126,6 +127,9 @@ def do_ocr(chat_fn, rotate, base, resume, outfile):
 
     bar = tqdm.tqdm(total=total, initial=resume, desc="OCR")
     user_prompt = "Extract all readable text from this image."
+    system_prompt = SYSTEM_INSTRUCTION
+    if hint:
+        system_prompt += f"Context: [{hint}]\n"
 
     for idx, f in enumerate(files):
         if idx < resume:
@@ -139,7 +143,7 @@ def do_ocr(chat_fn, rotate, base, resume, outfile):
             try:
                 resp = chat_fn(
                     [
-                        {"role": "system", "content": SYSTEM_INSTRUCTION},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
                     image=image_bytes,
@@ -177,12 +181,13 @@ def main():
     )
     parser.add_argument("--no-rotate", action="store_true", default=False, help="Disable auto-rotation")
     parser.add_argument("--resume", type=int, default=0, help="Skip first N files")
+    parser.add_argument("--hint", type=str, default="", help="Additional context / hint injected into the system prompt")
 
     args = parser.parse_args()
     _, chat_fn = get_client(args.api, args.model, args.key, args.base_url)
 
     with open(args.out, "a", encoding="utf-8") as f:
-        do_ocr(chat_fn, rotate=not args.no_rotate, base=args.base, resume=args.resume, outfile=f)
+        do_ocr(chat_fn, rotate=not args.no_rotate, base=args.base, resume=args.resume, outfile=f, hint=args.hint)
 
     # Print token usage summary
     inp, cached, outp, total = _tokens

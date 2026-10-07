@@ -114,7 +114,7 @@ class CompressionError(Exception):
     """Raised when the compression task exceeds its retry limit."""
 
 
-def build_semantic_errors(names, notes, max_notes_len=100):
+def build_semantic_errors(names, notes, annotated_objects, max_notes_len=100):
     """Return a list of human-readable error strings; empty means OK."""
     errs = []
     if not notes or not notes.strip():
@@ -126,6 +126,13 @@ def build_semantic_errors(names, notes, max_notes_len=100):
             errs.append("names 中存在空的 key")
         elif not translated or not translated.strip():
             errs.append(f"names 中 {name} 的值为空，缺少目标语言译文")
+    if annotated_objects is None:
+        annotated_objects = []
+    for obj in annotated_objects:
+        if not obj or not str(obj).strip():
+            errs.append("annotated_objects 中存在空元素")
+    if len(set(annotated_objects)) != len(annotated_objects):
+        errs.append("annotated_objects 中存在重复元素")
     return errs
 
 
@@ -135,13 +142,18 @@ class CompressionNote(BaseModel):
         default_factory=dict,
         description="原文语言到目标语言的名字对照表（人物、地名、事物等）",
     )
+    annotated_objects: list[str] = Field(
+        default_factory=list,
+        description="当前所有可见内容当中已经添加过译注（（译注：……））的对象/内容列表，"
+                    "不包含system消息的翻译笔记中已经记录过的译注对象",
+    )
     notes: str = Field(
         description="当前可见内容的简要梗概（目标语言，100字以内）",
     )
 
     @model_validator(mode="after")
     def _semantic_check(self):
-        errs = build_semantic_errors(self.names, self.notes)
+        errs = build_semantic_errors(self.names, self.notes, self.annotated_objects)
         if errs:
             raise ValueError("\n".join(errs))
         return self
@@ -157,12 +169,15 @@ def build_compression_prompt(out_lang, max_notes_len=100):
 需要你排除掉 system 消息中已有的翻译笔记内容，只记录之前未曾出现的新内容。
 
 只输出如下格式的 JSON，不要输出任何其它文字，不要使用 markdown 代码块：
-{{"names": {{"<原文语言的名字>": "<目标语言的名字>"}}, "notes": "<目标语言写的笔记>"}}
+{{"names": {{"<原文语言的名字>": "<目标语言的名字>"}}, "annotated_objects": ["<已添加译注的对象>"], "notes": "<目标语言写的笔记>"}}
 
 "names"：原文语言中的人物、地名、事物等值得在后续翻译中保持一致译名的名字。key 必须使用原文语言，value 使用目标语言（{target_language}）。
+"annotated_objects"：当前所有可见翻译内容当中已经通过“（译注：……）”添加过译注的对象/内容的列表，使用目标语言（{target_language}）。
 "notes"：当前可见内容的简要翻译笔记，包含内容梗概等有助于之后翻译的信息，使用目标语言（{target_language}），{max_notes_len} 字以内。
 
-重要：system 消息中已有翻译笔记记录过的内容，不要在本任务的"names"/"notes"中重复出现；只记录之前未曾出现的新内容。
+重要：
+1. system 消息中已有翻译笔记记录过的内容，不要在本任务的"names"/"notes"中重复出现；只记录之前未曾出现的新内容。
+2. system 消息中已有翻译笔记里的“已添加译注的对象”列表，是之前内容中已经译注过的对象；这些对象不要出现在本任务返回的"annotated_objects"中，"annotated_objects"只返回之前未曾译注过的新对象。
 
 JSON schema:
 {CompressionNote.model_json_schema()}
@@ -208,10 +223,10 @@ def compress(chat_fn, conversation, out_lang, max_retries=3):
             reason = f"无法解析输出：{e}"
         print(f"[compress] Attempt {attempt} failed: {reason}")
         error_messages.append({
-            "role": "system",
+            "role": "user",
             "content": (
-                f"上一次的笔记输出不符合要求：{reason}\n"
-                "请修正后重新输出完整的 JSON，包含全部需要记录的 names 与 notes。"
+                f"你现在执行“翻译笔记”压缩任务。上一次的笔记输出不符合要求：{reason}\n"
+                "请修正后重新输出完整的 JSON，包含全部需要记录的 names、annotated_objects 与 notes。"
             ),
         })
         time.sleep(2)
@@ -220,13 +235,27 @@ def compress(chat_fn, conversation, out_lang, max_retries=3):
 
 def format_note_block(note):
     """Render a CompressionNote as readable text for the system prompt."""
-    lines = ["\n--- 翻译笔记 ---"]
+    lines = ["\n----"]
     if note.names:
         lines.append("名字对照表：")
         for name, translated in note.names.items():
             lines.append(f"- {name} => {translated}")
+    if note.annotated_objects:
+        lines.append("已添加译注的对象：")
+        for obj in note.annotated_objects:
+            lines.append(f"- {obj}")
     lines.append(f"笔记：{note.notes}")
     return "\n".join(lines)
+
+
+def run_compress(chat_fn, messages, out_lang, note_file):
+    """Run the compression task, append the rendered note to note_file, and
+    return the rendered note block."""
+    note = compress(chat_fn, messages, out_lang)
+    block = format_note_block(note)
+    with open(note_file, "a", encoding="utf-8-sig") as nf:
+        nf.write(block + "\n")
+    return block
 
 
 # --- translation core (same batching pattern as article_translate_google.py) ---
@@ -265,19 +294,23 @@ def translate(chat_fn, out_lang, hint, custom_context, base, resume, outfile, ba
         input_count += 1
 
         if input_count >= num_history:
-            # set text of the bar
             bar.set_description_str("compressing")
-            note = compress(chat_fn, messages, out_lang)
+            note_block = run_compress(chat_fn, messages, out_lang, note_file)
             bar.set_description_str("Translate")
-            note_string += format_note_block(note)
+            note_string += note_block
             system_prompt = build_system_prompt(out_lang, hint, custom_context, note_string)
             messages = [{"role": "system", "content": system_prompt}]
             input_count = 0
-            with open(note_file, "a", encoding="utf-8-sig") as nf:
-                nf.write(format_note_block(note) + "\n")
 
         bar.update(len(batch))
         idx += len(batch)
+
+    # Final batch(es) that never reached num_history still need notes.
+    if input_count > 0:
+        bar.set_description_str("compressing")
+        note_block = run_compress(chat_fn, messages, out_lang, note_file)
+        bar.set_description_str("Translate")
+        note_string += note_block
 
 
 def build_system_prompt(out_lang, hint, custom_context, note_string=""):
@@ -298,7 +331,8 @@ def build_system_prompt(out_lang, hint, custom_context, note_string=""):
 不要遗漏任何内容，严格对齐原文和译文。
 只输出翻译后的内容，不要输出额外说明。
 使用目标语言的母语表达、语序和习惯用语。
-如果出现谐音哏、双关语、文化背景等情况，请结合上下文在括号中进行补充说明。
+如果出现谐音哏、双关语、文化背景等情况，请结合上下文在括号中进行补充说明。格式为“（译注：……）”。
+如果需要添加译注的对象已经出现在翻译笔记的“已添加译注的对象”列表中，表明之前的内容已经译注了该内容，则无需在当前翻译内容中再添加这一项译注。
 给你的文字可能存在语义不明确的情况，试着结合上下文推断正确含义并翻译。如果你并不明确原文的意思，可以在译注当中额外说明。
 
 除了文章内容，我可能会给你“压缩”命令，会以【你现在执行"翻译笔记"压缩任务】开头来出现，如果你收到这样的命令，你需要按照命令的要求进行格式化输出。否则执行翻译任务。你不需要对“压缩”命令进行翻译，只需要执行翻译笔记的压缩任务。
@@ -314,7 +348,10 @@ def build_system_prompt(out_lang, hint, custom_context, note_string=""):
 
     # Accumulated translation notes from previous compression rounds
     if note_string:
-        parts.append("以下是之前翻译内容的笔记，你需要在翻译时候保持和笔记内翻译名称的一致性：" + note_string)
+        parts.extend(["以下是之前翻译内容的笔记，你需要在翻译时候保持和笔记内翻译名称的一致性；"
+                      "其中“已添加译注的对象”是之前内容中已经添加过译注的对象，"
+                      "无需为这些对象在新翻译的内容当中添加译注。",
+                      "=====笔记开始=====", note_string, "=====笔记结束====="])
 
     return "\n".join(parts)
 
@@ -347,10 +384,10 @@ def main():
     )
     parser.add_argument("--note-file", type=str, default="", help="The note file path to save translation notes (optional)")
     parser.add_argument(
-        "--no-preserve-thinking", dest="preserve_thinking", action="store_false",
-        help="Disable preserving the model's reasoning/thinking across turns (llama.cpp chat_template_kwargs; enabled by default for --api openai)",
+        "--preserve-thinking", dest="preserve_thinking", action="store_true",
+        help="Enable preserving the model's reasoning/thinking across turns (llama.cpp chat_template_kwargs; enabled by default for --api openai)",
     )
-    parser.set_defaults(preserve_thinking=True)
+    parser.set_defaults(preserve_thinking=False)
     parser.add_argument(
         "--max-thinking-tokens", type=int, default=5120,
         help="Thinking token budget passed to the sampler (extra_body thinking_budget_tokens / reasoning_budget_tokens; --api openai)",
