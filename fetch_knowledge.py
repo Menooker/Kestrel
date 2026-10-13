@@ -327,7 +327,7 @@ def build_system_prompt(out_lang, profile, max_calls, known):
         "open_urls": OpenUrlsCall.model_json_schema(),
     }
     parts.append(
-        "## function call schema（tool 取值决定调用类型）\n"
+        "## function call schema（需要添加额外的\"tool\" field，它的取值决定调用类型）\n"
         + json.dumps(tool_schemas, ensure_ascii=False, indent=2)
     )
 
